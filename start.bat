@@ -1,1 +1,2 @@
-npm start
+npm run start
+pause

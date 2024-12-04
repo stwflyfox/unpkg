@@ -9,9 +9,10 @@ export const scopes = [
  * 拉取一些npm的包会返回302的情况，unpkg暂时没有处理，会不会和本地的npm源有关？
  ***/
 
-export const privateNpmRegistryURL = 'http://127.0.0.1:4873';
+export const privateNpmRegistryURL = 'http://localhost:4873';
 
 //互联网npm地址
-export const publicNpmRegistryURL = 'http://registry.npmjs.org';
+export const publicNpmRegistryURL = 'http://registry.npmmirror.com';
+
 
 export default scopes;
