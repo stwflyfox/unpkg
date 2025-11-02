@@ -224,8 +224,8 @@ export async function getPackage(packageName, version, log) {
   const isPrivatePage = getIsPrivate(packageName);
 
   if (isPrivatePage) {
-
-    tarballURL = `${npmRegistryURLPrivate}/${packageName}/-/${packageName}-${version}.tgz`;
+    var prePackageName = packageName.replace('@shqy/','')
+    tarballURL = `${npmRegistryURLPrivate}/${packageName}/-/${prePackageName}-${version}.tgz`;
   } else {
     const tarballName = isScopedPackageName(packageName)
       ? packageName.split('/')[1]

@@ -57,9 +57,7 @@ function bufferStream(stream) {
 
 mime.define({
   'text/plain': ['authors', 'changes', 'license', 'makefile', 'patents', 'readme', 'ts', 'flow']
-},
-/* force */
-true);
+}, /* force */true);
 const textFiles = /\/?(\.[a-z]*rc|\.git[a-z]*|\.[a-z]*ignore|\.lock)$/i;
 function getContentType(file) {
   const name = path.basename(file);
@@ -81,16 +79,21 @@ const scopes = ['@shqy'];
  * 拉取一些npm的包会返回302的情况，unpkg暂时没有处理，会不会和本地的npm源有关？
  ***/
 
-const privateNpmRegistryURL = 'http://localhost:4873'; //互联网npm地址
+const privateNpmRegistryURL = 'http://localhost:4873';
 
+//互联网npm地址
 const publicNpmRegistryURL = 'http://registry.npmmirror.com';
 
-const npmRegistryURLPrivate = privateNpmRegistryURL; // 公网npm地址
+// npm 私库地址
+const npmRegistryURLPrivate = privateNpmRegistryURL;
 
+// 公网npm地址
 const npmRegistryURL = publicNpmRegistryURL;
-const privateNpmRegistryURLArr = privateNpmRegistryURL.split(":"); //获取私库的端口
+const privateNpmRegistryURLArr = privateNpmRegistryURL.split(":");
+//获取私库的端口
+const privateNpmPort = privateNpmRegistryURLArr[privateNpmRegistryURLArr.length - 1];
 
-const privateNpmPort = privateNpmRegistryURLArr[privateNpmRegistryURLArr.length - 1]; // const agent = new https.Agent({
+// const agent = new https.Agent({
 //   keepAlive: true
 // });
 
@@ -106,38 +109,31 @@ const cache = new LRUCache({
   maxAge: oneSecond
 });
 const notFound = '';
-
 function get(options) {
   return new Promise((accept, reject) => {
     http.get(options, accept).on('error', reject);
   });
 }
-
 function isScopedPackageName(packageName) {
   return packageName.startsWith('@');
 }
-
 function encodePackageName(packageName) {
   return isScopedPackageName(packageName) ? `@${encodeURIComponent(packageName.substring(1))}` : encodeURIComponent(packageName);
 }
-
 function getIsPrivate(packageName) {
   return scopes.some(val => packageName.indexOf(val) !== -1);
 }
-
 async function fetchPackageInfo(packageName, log) {
   const name = encodePackageName(packageName);
   const isPrivatePage = getIsPrivate(packageName);
   let options = null;
   let infoURL = null;
-
   if (isPrivatePage) {
     //私库的包
     infoURL = `${npmRegistryURLPrivate}/${name}`;
   } else {
     infoURL = `${npmRegistryURL}/${name}`;
   }
-
   log.debug('Fetching package info for %s from %s', packageName, infoURL);
   const {
     hostname,
@@ -150,7 +146,6 @@ async function fetchPackageInfo(packageName, log) {
       Accept: 'application/json'
     }
   };
-
   if (isPrivatePage) {
     /*
     * http.Agent 主要是为 http.request, http.get 提供代理服务
@@ -166,24 +161,19 @@ async function fetchPackageInfo(packageName, log) {
   } else {
     options.agent = agent;
   }
-
   const res = await get(options);
-
   if (res.statusCode === 200) {
     return bufferStream(res).then(JSON.parse);
   }
-
   if (res.statusCode === 404) {
     return null;
   }
-
   console.log("request info======>", infoURL, res.statusCode);
   const content = (await bufferStream(res)).toString('utf-8');
   log.error('Error fetching info for %s (status: %s)', packageName, res.statusCode);
   log.error(content);
   return null;
 }
-
 async function fetchVersionsAndTags(packageName, log) {
   const info = await fetchPackageInfo(packageName, log);
   return info && info.versions ? {
@@ -191,76 +181,64 @@ async function fetchVersionsAndTags(packageName, log) {
     tags: info['dist-tags']
   } : null;
 }
+
 /**
  * Returns an object of available { versions, tags }.
  * Uses a cache to avoid over-fetching from the registry.
  */
-
-
 async function getVersionsAndTags(packageName, log) {
   const cacheKey = `versions-${packageName}`;
   const cacheValue = cache.get(cacheKey);
-
   if (cacheValue != null) {
     return cacheValue === notFound ? null : JSON.parse(cacheValue);
   }
-
   const value = await fetchVersionsAndTags(packageName, log);
-
   if (value == null) {
     cache.set(cacheKey, notFound, 5 * oneMinute);
     return null;
   }
-
   cache.set(cacheKey, JSON.stringify(value), oneMinute);
   return value;
-} // All the keys that sometimes appear in package info
+}
+
+// All the keys that sometimes appear in package info
 // docs that we don't need. There are probably more.
-
 const packageConfigExcludeKeys = ['browserify', 'bugs', 'directories', 'engines', 'files', 'homepage', 'keywords', 'maintainers', 'scripts'];
-
 function cleanPackageConfig(config) {
   return Object.keys(config).reduce((memo, key) => {
     if (!key.startsWith('_') && !packageConfigExcludeKeys.includes(key)) {
       memo[key] = config[key];
     }
-
     return memo;
   }, {});
 }
-
 async function fetchPackageConfig(packageName, version, log) {
   const info = await fetchPackageInfo(packageName, log);
   return info && info.versions && version in info.versions ? cleanPackageConfig(info.versions[version]) : null;
 }
+
 /**
  * Returns metadata about a package, mostly the same as package.json.
  * Uses a cache to avoid over-fetching from the registry.
  */
-
-
 async function getPackageConfig(packageName, version, log) {
   const cacheKey = `config-${packageName}-${version}`;
   const cacheValue = cache.get(cacheKey);
-
   if (cacheValue != null) {
     return cacheValue === notFound ? null : JSON.parse(cacheValue);
   }
-
   const value = await fetchPackageConfig(packageName, version, log);
-
   if (value == null) {
     cache.set(cacheKey, notFound, 5 * oneMinute);
     return null;
   }
-
   cache.set(cacheKey, JSON.stringify(value), oneMinute);
   return value;
 }
+
 /**
  * Returns a stream of the tarball'd contents of the given package.
  */
-
 async function getPackage(packageName, version, log) {
   // const tarballName = isScopedPackageName(packageName)
   //   ? packageName.split('/')[1]
@@ -268,16 +246,16 @@ async function getPackage(packageName, version, log) {
   // const tarballURL = `${npmRegistryURL}/${packageName}/-/${tarballName}-${version}.tgz`;
   // 这里会被切割@，外网不会
   // 获取正确的包的url
+
   let tarballURL = null;
   const isPrivatePage = getIsPrivate(packageName);
-
   if (isPrivatePage) {
-    tarballURL = `${npmRegistryURLPrivate}/${packageName}/-/${packageName}-${version}.tgz`;
+    var prePackageName = packageName.replace('@shqy/', '');
+    tarballURL = `${npmRegistryURLPrivate}/${packageName}/-/${prePackageName}-${version}.tgz`;
   } else {
     const tarballName = isScopedPackageName(packageName) ? packageName.split('/')[1] : packageName;
     tarballURL = `${npmRegistryURL}/${packageName}/-/${tarballName}-${version}.tgz`;
   }
-
   log.debug('Fetching package for %s from %s', packageName, tarballURL);
   const {
     hostname,
@@ -288,7 +266,6 @@ async function getPackage(packageName, version, log) {
     hostname: hostname,
     path: pathname
   };
-
   if (isPrivatePage) {
     /*
     * http.Agent 主要是为 http.request, http.get 提供代理服务
@@ -304,19 +281,15 @@ async function getPackage(packageName, version, log) {
   } else {
     options.agent = agent;
   }
-
   const res = await get(options);
-
   if (res.statusCode === 200) {
-    const stream = res.pipe(gunzip()); // stream.pause();
-
+    const stream = res.pipe(gunzip());
+    // stream.pause();
     return stream;
   }
-
   if (res.statusCode === 404) {
     return null;
   }
-
   console.log("request info======>", tarballURL, res.statusCode);
   const content = (await bufferStream(res)).toString('utf-8');
   log.error('Error fetching tarball for %s@%s (status: %s)', packageName, version, res.statusCode);
@@ -328,40 +301,32 @@ function _extends() {
   _extends = Object.assign || function (target) {
     for (var i = 1; i < arguments.length; i++) {
       var source = arguments[i];
-
       for (var key in source) {
         if (Object.prototype.hasOwnProperty.call(source, key)) {
           target[key] = source[key];
         }
       }
     }
-
     return target;
   };
-
   return _extends.apply(this, arguments);
 }
-
 function _objectWithoutPropertiesLoose(source, excluded) {
   if (source == null) return {};
   var target = {};
   var sourceKeys = Object.keys(source);
   var key, i;
-
   for (i = 0; i < sourceKeys.length; i++) {
     key = sourceKeys[i];
     if (excluded.indexOf(key) >= 0) continue;
     target[key] = source[key];
   }
-
   return target;
 }
-
 function _taggedTemplateLiteralLoose(strings, raw) {
   if (!raw) {
     raw = strings.slice(0);
   }
-
   strings.raw = raw;
   return strings;
 }
@@ -372,8 +337,7 @@ var fontMono = "\nfont-family: Menlo,\n  Monaco,\n  Lucida Console,\n  Liberatio
 var Context = React.createContext();
 function PackageInfoProvider(_ref) {
   var children = _ref.children,
-      rest = _objectWithoutPropertiesLoose(_ref, ["children"]);
-
+    rest = _objectWithoutPropertiesLoose(_ref, ["children"]);
   return React__default.createElement(Context.Provider, {
     children: children,
     value: rest
@@ -386,18 +350,15 @@ function usePackageInfo() {
 function formatNumber(n) {
   var digits = String(n).split('');
   var groups = [];
-
   while (digits.length) {
     groups.unshift(digits.splice(-3).join(''));
   }
-
   return groups.join(',');
 }
 function formatPercent(n, decimals) {
   if (decimals === void 0) {
     decimals = 1;
   }
-
   return (n * 100).toPrecision(decimals + 2);
 }
 
@@ -480,36 +441,28 @@ function IconBase(props) {
 }
 
 // THIS FILE IS AUTO GENERATED
-var GoFileDirectory = function (props) {
+function GoFileDirectory (props) {
   return GenIcon({"tag":"svg","attr":{"viewBox":"0 0 14 16"},"child":[{"tag":"path","attr":{"fillRule":"evenodd","d":"M13 4H7V3c0-.66-.31-1-1-1H1c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1V5c0-.55-.45-1-1-1zM6 4H1V3h5v1z"}}]})(props);
-};
-GoFileDirectory.displayName = "GoFileDirectory";
-var GoFile = function (props) {
+}function GoFile (props) {
   return GenIcon({"tag":"svg","attr":{"viewBox":"0 0 12 16"},"child":[{"tag":"path","attr":{"fillRule":"evenodd","d":"M6 5H2V4h4v1zM2 8h7V7H2v1zm0 2h7V9H2v1zm0 2h7v-1H2v1zm10-7.5V14c0 .55-.45 1-1 1H1c-.55 0-1-.45-1-1V2c0-.55.45-1 1-1h7.5L12 4.5zM11 5L8 2H1v12h10V5z"}}]})(props);
-};
-GoFile.displayName = "GoFile";
+}
 
 // THIS FILE IS AUTO GENERATED
-var FaGithub = function (props) {
+function FaGithub (props) {
   return GenIcon({"tag":"svg","attr":{"viewBox":"0 0 496 512"},"child":[{"tag":"path","attr":{"d":"M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"}}]})(props);
-};
-FaGithub.displayName = "FaGithub";
-var FaTwitter = function (props) {
+}function FaTwitter (props) {
   return GenIcon({"tag":"svg","attr":{"viewBox":"0 0 512 512"},"child":[{"tag":"path","attr":{"d":"M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"}}]})(props);
-};
-FaTwitter.displayName = "FaTwitter";
+}
 
 function createIcon(Type, _ref) {
   var css = _ref.css,
-      rest = _objectWithoutPropertiesLoose(_ref, ["css"]);
-
+    rest = _objectWithoutPropertiesLoose(_ref, ["css"]);
   return core.jsx(Type, _extends({
     css: _extends({}, css, {
       verticalAlign: 'text-bottom'
     })
   }, rest));
 }
-
 function DirectoryIcon(props) {
   return createIcon(GoFileDirectory, props);
 }
@@ -537,7 +490,6 @@ var tableCellStyle = {
   paddingLeft: 3,
   borderTop: '1px solid #eaecef'
 };
-
 var iconCellStyle = _extends({}, tableCellStyle, {
   color: '#424242',
   width: 17,
@@ -547,7 +499,6 @@ var iconCellStyle = _extends({}, tableCellStyle, {
     paddingLeft: 20
   }
 });
-
 var typeCellStyle = _extends({}, tableCellStyle, {
   textAlign: 'right',
   paddingRight: 10,
@@ -555,16 +506,13 @@ var typeCellStyle = _extends({}, tableCellStyle, {
     paddingRight: 20
   }
 });
-
 function getRelName(path, base) {
   return path.substr(base.length > 1 ? base.length + 1 : 1);
 }
-
 function DirectoryViewer(_ref) {
   var path = _ref.path,
-      entries = _ref.details;
+    entries = _ref.details;
   var rows = [];
-
   if (path !== '/') {
     rows.push(core.jsx("tr", {
       key: ".."
@@ -582,26 +530,22 @@ function DirectoryViewer(_ref) {
       css: typeCellStyle
     })));
   }
-
   var _Object$keys$reduce = Object.keys(entries).reduce(function (memo, key) {
-    var subdirs = memo.subdirs,
+      var subdirs = memo.subdirs,
         files = memo.files;
-    var entry = entries[key];
-
-    if (entry.type === 'directory') {
-      subdirs.push(entry);
-    } else if (entry.type === 'file') {
-      files.push(entry);
-    }
-
-    return memo;
-  }, {
-    subdirs: [],
-    files: []
-  }),
-      subdirs = _Object$keys$reduce.subdirs,
-      files = _Object$keys$reduce.files;
-
+      var entry = entries[key];
+      if (entry.type === 'directory') {
+        subdirs.push(entry);
+      } else if (entry.type === 'file') {
+        files.push(entry);
+      }
+      return memo;
+    }, {
+      subdirs: [],
+      files: []
+    }),
+    subdirs = _Object$keys$reduce.subdirs,
+    files = _Object$keys$reduce.files;
   subdirs.sort(sortBy('path')).forEach(function (_ref2) {
     var dirname = _ref2.path;
     var relName = getRelName(dirname, path);
@@ -624,8 +568,8 @@ function DirectoryViewer(_ref) {
   });
   files.sort(sortBy('path')).forEach(function (_ref3) {
     var filename = _ref3.path,
-        size = _ref3.size,
-        contentType = _ref3.contentType;
+      size = _ref3.size,
+      contentType = _ref3.contentType;
     var relName = getRelName(filename, path);
     var href = relName;
     rows.push(core.jsx("tr", {
@@ -668,7 +612,6 @@ function DirectoryViewer(_ref) {
     }
   }, core.jsx("thead", null, core.jsx("tr", null, core.jsx("th", null, core.jsx(VisuallyHidden, null, "Icon")), core.jsx("th", null, core.jsx(VisuallyHidden, null, "Name")), core.jsx("th", null, core.jsx(VisuallyHidden, null, "Size")), core.jsx("th", null, core.jsx(VisuallyHidden, null, "Content Type")))), core.jsx("tbody", null, rows)));
 }
-
 if (process.env.NODE_ENV !== 'production') {
   DirectoryViewer.propTypes = {
     path: PropTypes.string.isRequired,
@@ -680,7 +623,6 @@ if (process.env.NODE_ENV !== 'production') {
       integrity: PropTypes.string,
       // file only
       size: PropTypes.number // file only
-
     })).isRequired
   };
 }
@@ -692,15 +634,13 @@ function createHTML(content) {
 }
 
 /** @jsx jsx */
-
 function getBasename(path) {
   var segments = path.split('/');
   return segments[segments.length - 1];
 }
-
 function ImageViewer(_ref) {
   var path = _ref.path,
-      uri = _ref.uri;
+    uri = _ref.uri;
   return core.jsx("div", {
     css: {
       padding: 20,
@@ -711,16 +651,13 @@ function ImageViewer(_ref) {
     src: uri
   }));
 }
-
 function CodeListing(_ref2) {
   var highlights = _ref2.highlights;
   var lines = highlights.slice(0);
   var hasTrailingNewline = lines.length && lines[lines.length - 1] === '';
-
   if (hasTrailingNewline) {
     lines.pop();
   }
-
   return core.jsx("div", {
     className: "code-listing",
     css: {
@@ -783,7 +720,6 @@ function CodeListing(_ref2) {
     }
   }, "No newline at end of file")))));
 }
-
 function BinaryViewer() {
   return core.jsx("div", {
     css: {
@@ -795,19 +731,16 @@ function BinaryViewer() {
     }
   }, "No preview available."));
 }
-
 function FileViewer(_ref3) {
   var path = _ref3.path,
-      details = _ref3.details;
-
+    details = _ref3.details;
   var _usePackageInfo = usePackageInfo(),
-      packageName = _usePackageInfo.packageName,
-      packageVersion = _usePackageInfo.packageVersion;
-
+    packageName = _usePackageInfo.packageName,
+    packageVersion = _usePackageInfo.packageVersion;
   var highlights = details.highlights,
-      uri = details.uri,
-      language = details.language,
-      size = details.size;
+    uri = details.uri,
+    language = details.language,
+    size = details.size;
   var segments = path.split('/');
   var filename = segments[segments.length - 1];
   return core.jsx("div", {
@@ -867,7 +800,6 @@ function FileViewer(_ref3) {
     uri: uri
   }) : core.jsx(BinaryViewer, null));
 }
-
 if (process.env.NODE_ENV !== 'production') {
   FileViewer.propTypes = {
     path: PropTypes.string.isRequired,
@@ -888,25 +820,21 @@ var SelectDownArrow = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAY
 
 function _templateObject2() {
   var data = _taggedTemplateLiteralLoose(["\n  .code-listing {\n    background: #fbfdff;\n    color: #383a42;\n  }\n  .code-comment,\n  .code-quote {\n    color: #a0a1a7;\n    font-style: italic;\n  }\n  .code-doctag,\n  .code-keyword,\n  .code-link,\n  .code-formula {\n    color: #a626a4;\n  }\n  .code-section,\n  .code-name,\n  .code-selector-tag,\n  .code-deletion,\n  .code-subst {\n    color: #e45649;\n  }\n  .code-literal {\n    color: #0184bb;\n  }\n  .code-string,\n  .code-regexp,\n  .code-addition,\n  .code-attribute,\n  .code-meta-string {\n    color: #50a14f;\n  }\n  .code-built_in,\n  .code-class .code-title {\n    color: #c18401;\n  }\n  .code-attr,\n  .code-variable,\n  .code-template-variable,\n  .code-type,\n  .code-selector-class,\n  .code-selector-attr,\n  .code-selector-pseudo,\n  .code-number {\n    color: #986801;\n  }\n  .code-symbol,\n  .code-bullet,\n  .code-meta,\n  .code-selector-id,\n  .code-title {\n    color: #4078f2;\n  }\n  .code-emphasis {\n    font-style: italic;\n  }\n  .code-strong {\n    font-weight: bold;\n  }\n"]);
-
   _templateObject2 = function _templateObject2() {
     return data;
   };
-
   return data;
 }
-
 function _templateObject() {
   var data = _taggedTemplateLiteralLoose(["\n  html {\n    box-sizing: border-box;\n  }\n  *,\n  *:before,\n  *:after {\n    box-sizing: inherit;\n  }\n\n  html,\n  body,\n  #root {\n    height: 100%;\n    margin: 0;\n  }\n\n  body {\n    ", "\n    font-size: 16px;\n    line-height: 1.5;\n    background: white;\n    color: black;\n  }\n\n  code {\n    ", "\n  }\n\n  th,\n  td {\n    padding: 0;\n  }\n\n  select {\n    font-size: inherit;\n  }\n\n  #root {\n    display: flex;\n    flex-direction: column;\n  }\n"]);
-
   _templateObject = function _templateObject() {
     return data;
   };
-
   return data;
 }
-var globalStyles = core.css(_templateObject(), fontSans, fontMono); // Adapted from https://github.com/highlightjs/highlight.js/blob/master/src/styles/atom-one-light.css
+var globalStyles = core.css(_templateObject(), fontSans, fontMono);
 
+// Adapted from https://github.com/highlightjs/highlight.js/blob/master/src/styles/atom-one-light.css
 var lightCodeStyles = core.css(_templateObject2());
 var linkStyle$1 = {
   color: '#0076ff',
@@ -917,18 +845,15 @@ var linkStyle$1 = {
 };
 function App(_ref) {
   var packageName = _ref.packageName,
-      packageVersion = _ref.packageVersion,
-      _ref$availableVersion = _ref.availableVersions,
-      availableVersions = _ref$availableVersion === void 0 ? [] : _ref$availableVersion,
-      filename = _ref.filename,
-      target = _ref.target;
-
+    packageVersion = _ref.packageVersion,
+    _ref$availableVersion = _ref.availableVersions,
+    availableVersions = _ref$availableVersion === void 0 ? [] : _ref$availableVersion,
+    filename = _ref.filename,
+    target = _ref.target;
   function handleChange(event) {
     window.location.href = window.location.href.replace('@' + packageVersion, '@' + event.target.value);
   }
-
   var breadcrumbs = [];
-
   if (filename === '/') {
     breadcrumbs.push(packageName);
   } else {
@@ -947,9 +872,9 @@ function App(_ref) {
       }, segment));
     });
     breadcrumbs.push(lastSegment);
-  } // TODO: Provide a user pref to go full width?
+  }
 
-
+  // TODO: Provide a user pref to go full width?
   var maxContentWidth = 940;
   return core.jsx(PackageInfoProvider, {
     packageName: packageName,
@@ -1108,7 +1033,6 @@ function App(_ref) {
     }
   }, core.jsx(GitHubIcon, null)))))));
 }
-
 if (process.env.NODE_ENV !== 'production') {
   var targetType = PropTypes.shape({
     path: PropTypes.string.isRequired,
@@ -1127,7 +1051,6 @@ if (process.env.NODE_ENV !== 'production') {
 /**
  * Encodes some data as JSON that may safely be included in HTML.
  */
-
 function encodeJSONForScript(data) {
   return jsesc(data, {
     json: true,
@@ -1158,7 +1081,8 @@ function MainTemplate({
 }) {
   return React.createElement('html', {
     lang: 'en'
-  }, React.createElement('head', null, // Global site tag (gtag.js) - Google Analytics
+  }, React.createElement('head', null,
+  // Global site tag (gtag.js) - Google Analytics
   React.createElement('script', {
     async: true,
     src: 'https://www.googletagmanager.com/gtag/js?id=UA-140352188-1'
@@ -1187,7 +1111,6 @@ gtag('config', 'UA-140352188-1');`), React.createElement('meta', {
     dangerouslySetInnerHTML: content
   }), ...elements));
 }
-
 if (process.env.NODE_ENV !== 'production') {
   const htmlType = PropTypes.shape({
     __html: PropTypes.string
@@ -1202,10 +1125,9 @@ if (process.env.NODE_ENV !== 'production') {
   };
 }
 
-var entryManifest = [{"browse":[{"format":"iife","globalImports":["react","react-dom","@emotion/core"],"url":"/_client/browse-415baa3d.js","code":"'use strict';\n(function(t, z, c) {\n  function A() {\n    A = Object.assign || function(a) {\n      for (var b = 1; b < arguments.length; b++) {\n        var d = arguments[b], c;\n        for (c in d) {\n          Object.prototype.hasOwnProperty.call(d, c) && (a[c] = d[c]);\n        }\n      }\n      return a;\n    };\n    return A.apply(this, arguments);\n  }\n  function Q(a, b) {\n    if (null == a) {\n      return {};\n    }\n    var d = {}, c = Object.keys(a), f;\n    for (f = 0; f < c.length; f++) {\n      var k = c[f];\n      0 <= b.indexOf(k) || (d[k] = a[k]);\n    }\n    return d;\n  }\n  function R(a, b) {\n    b || (b = a.slice(0));\n    a.raw = b;\n    return a;\n  }\n  function S(a) {\n    return a && a.__esModule && Object.prototype.hasOwnProperty.call(a, \"default\") ? a[\"default\"] : a;\n  }\n  function D(a, b) {\n    return b = {exports:{}}, a(b, b.exports), b.exports;\n  }\n  function J(a, b, d, c, f) {\n    for (var k in a) {\n      if (sa(a, k)) {\n        try {\n          if (\"function\" !== typeof a[k]) {\n            var h = Error((c || \"React class\") + \": \" + d + \" type `\" + k + \"` is invalid; it must be a function, usually from the `prop-types` package, but received `\" + typeof a[k] + \"`.\");\n            h.name = \"Invariant Violation\";\n            throw h;\n          }\n          var l = a[k](b, k, c, d, null, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n        } catch (q) {\n          l = q;\n        }\n        !l || l instanceof Error || K((c || \"React class\") + \": type specification of \" + d + \" `\" + k + \"` is invalid; the type checker function must return `null` or an `Error` but returned a \" + typeof l + \". You may have forgotten to pass an argument to the type checker creator (arrayOf, instanceOf, objectOf, oneOf, oneOfType, and shape all require an argument).\");\n        if (l instanceof Error && !(l.message in L)) {\n          L[l.message] = !0;\n          var B = f ? f() : \"\";\n          K(\"Failed \" + d + \" type: \" + l.message + (null != B ? B : \"\"));\n        }\n      }\n    }\n  }\n  function E() {\n    return null;\n  }\n  function ta(a) {\n    var b = a.children;\n    a = Q(a, [\"children\"]);\n    return M.createElement(T.Provider, {children:b, value:a});\n  }\n  function U(a) {\n    return a && a.map(function(a, d) {\n      return t.createElement(a.tag, y({key:d}, a.attr), U(a.child));\n    });\n  }\n  function F(a) {\n    return function(b) {\n      return t.createElement(ua, y({attr:y({}, a.attr)}, b), U(a.child));\n    };\n  }\n  function ua(a) {\n    var b = function(b) {\n      var c = a.size || b.size || \"1em\";\n      if (b.className) {\n        var d = b.className;\n      }\n      a.className && (d = (d ? d + \" \" : \"\") + a.className);\n      var k = a.attr, r = a.title, l = [\"attr\", \"title\"], B = {}, q;\n      for (q in a) {\n        Object.prototype.hasOwnProperty.call(a, q) && 0 > l.indexOf(q) && (B[q] = a[q]);\n      }\n      if (null != a && \"function\" === typeof Object.getOwnPropertySymbols) {\n        var p = 0;\n        for (q = Object.getOwnPropertySymbols(a); p < q.length; p++) {\n          0 > l.indexOf(q[p]) && (B[q[p]] = a[q[p]]);\n        }\n      }\n      return t.createElement(\"svg\", y({stroke:\"currentColor\", fill:\"currentColor\", strokeWidth:\"0\"}, b.attr, k, B, {className:d, style:y({color:a.color || b.color}, b.style, a.style), height:c, width:c, xmlns:\"http://www.w3.org/2000/svg\"}), r && t.createElement(\"title\", null, r), a.children);\n    };\n    return void 0 !== V ? t.createElement(V.Consumer, null, function(a) {\n      return b(a);\n    }) : b(W);\n  }\n  function G(a, b) {\n    var d = b.css;\n    b = Q(b, [\"css\"]);\n    return c.jsx(a, A({css:A({}, d, {verticalAlign:\"text-bottom\"})}, b));\n  }\n  function va(a) {\n    return G(X, a);\n  }\n  function wa(a) {\n    return G(Y, a);\n  }\n  function xa(a) {\n    return G(Z, a);\n  }\n  function ya(a) {\n    return G(aa, a);\n  }\n  function ba(a) {\n    var b = a.path, d = a.details, h = [];\n    \"/\" !== b && h.push(c.jsx(\"tr\", {key:\"..\"}, c.jsx(\"td\", {css:N}), c.jsx(\"td\", {css:x}, c.jsx(\"a\", {title:\"Parent directory\", href:\"../\", css:O}, \"..\")), c.jsx(\"td\", {css:x}), c.jsx(\"td\", {css:P})));\n    a = Object.keys(d).reduce(function(a, b) {\n      var c = a.subdirs, f = a.files;\n      b = d[b];\n      \"directory\" === b.type ? c.push(b) : \"file\" === b.type && f.push(b);\n      return a;\n    }, {subdirs:[], files:[]});\n    var f = a.files;\n    a.subdirs.sort(ca(\"path\")).forEach(function(a) {\n      a = a.path.substr(1 < b.length ? b.length + 1 : 1);\n      var d = a + \"/\";\n      h.push(c.jsx(\"tr\", {key:a}, c.jsx(\"td\", {css:N}, c.jsx(va, null)), c.jsx(\"td\", {css:x}, c.jsx(\"a\", {title:a, href:d, css:O}, a)), c.jsx(\"td\", {css:x}, \"-\"), c.jsx(\"td\", {css:P}, \"-\")));\n    });\n    f.sort(ca(\"path\")).forEach(function(a) {\n      var d = a.size, f = a.contentType;\n      a = a.path.substr(1 < b.length ? b.length + 1 : 1);\n      h.push(c.jsx(\"tr\", {key:a}, c.jsx(\"td\", {css:N}, c.jsx(wa, null)), c.jsx(\"td\", {css:x}, c.jsx(\"a\", {title:a, href:a, css:O}, a)), c.jsx(\"td\", {css:x}, da(d)), c.jsx(\"td\", {css:P}, f)));\n    });\n    return c.jsx(\"div\", {css:{border:\"1px solid #dfe2e5\", borderRadius:3, borderTopWidth:0, \"@media (max-width: 700px)\":{borderRightWidth:0, borderLeftWidth:0}}}, c.jsx(\"table\", {css:{width:\"100%\", borderCollapse:\"collapse\", borderRadius:2, background:\"#fff\", \"@media (max-width: 700px)\":{\"& th + th + th + th, & td + td + td + td\":{display:\"none\"}}}}, c.jsx(\"thead\", null, c.jsx(\"tr\", null, c.jsx(\"th\", null, c.jsx(H, null, \"Icon\")), c.jsx(\"th\", null, c.jsx(H, null, \"Name\")), c.jsx(\"th\", null, c.jsx(H, \n    null, \"Size\")), c.jsx(\"th\", null, c.jsx(H, null, \"Content Type\")))), c.jsx(\"tbody\", null, h)));\n  }\n  function za(a) {\n    a = a.split(\"/\");\n    return a[a.length - 1];\n  }\n  function Aa(a) {\n    var b = a.uri;\n    return c.jsx(\"div\", {css:{padding:20, textAlign:\"center\"}}, c.jsx(\"img\", {title:za(a.path), src:b}));\n  }\n  function Ba(a) {\n    a = a.highlights.slice(0);\n    var b = a.length && \"\" === a[a.length - 1];\n    b && a.pop();\n    return c.jsx(\"div\", {className:\"code-listing\", css:{overflowX:\"auto\", overflowY:\"hidden\", paddingTop:5, paddingBottom:5}}, c.jsx(\"table\", {css:{border:\"none\", borderCollapse:\"collapse\", borderSpacing:0}}, c.jsx(\"tbody\", null, a.map(function(a, b) {\n      var d = b + 1;\n      return c.jsx(\"tr\", {key:b}, c.jsx(\"td\", {id:\"L\" + d, css:{paddingLeft:10, paddingRight:10, color:\"rgba(27,31,35,.3)\", textAlign:\"right\", verticalAlign:\"top\", width:\"1%\", minWidth:50, userSelect:\"none\"}}, c.jsx(\"span\", null, d)), c.jsx(\"td\", {id:\"LC\" + d, css:{paddingLeft:10, paddingRight:10, color:\"#24292e\", whiteSpace:\"pre\"}}, c.jsx(\"code\", {dangerouslySetInnerHTML:{__html:a}})));\n    }), !b && c.jsx(\"tr\", {key:\"no-newline\"}, c.jsx(\"td\", {css:{paddingLeft:10, paddingRight:10, color:\"rgba(27,31,35,.3)\", textAlign:\"right\", verticalAlign:\"top\", width:\"1%\", minWidth:50, userSelect:\"none\"}}, \"\\\\\"), c.jsx(\"td\", {css:{paddingLeft:10, color:\"rgba(27,31,35,.3)\", userSelect:\"none\"}}, \"No newline at end of file\")))));\n  }\n  function Ca() {\n    return c.jsx(\"div\", {css:{padding:20}}, c.jsx(\"p\", {css:{textAlign:\"center\"}}, \"No preview available.\"));\n  }\n  function ea(a) {\n    var b = a.path, d = a.details, h = t.useContext(T);\n    a = h.packageName;\n    h = h.packageVersion;\n    var f = d.highlights, k = d.uri, r = d.language;\n    d = d.size;\n    var l = b.split(\"/\");\n    l = l[l.length - 1];\n    return c.jsx(\"div\", {css:{border:\"1px solid #dfe2e5\", borderRadius:3, \"@media (max-width: 700px)\":{borderRightWidth:0, borderLeftWidth:0}}}, c.jsx(\"div\", {css:{padding:10, background:\"#f6f8fa\", color:\"#424242\", border:\"1px solid #d1d5da\", borderTopLeftRadius:3, borderTopRightRadius:3, margin:\"-1px -1px 0\", display:\"flex\", flexDirection:\"row\", alignItems:\"center\", justifyContent:\"space-between\", \"@media (max-width: 700px)\":{paddingRight:20, paddingLeft:20}}}, c.jsx(\"span\", null, da(d)), \" \", c.jsx(\"span\", \n    null, r), \" \", c.jsx(\"a\", {title:l, href:\"/\" + a + \"@\" + h + b, css:{display:\"inline-block\", textDecoration:\"none\", padding:\"2px 8px\", fontWeight:600, fontSize:\"0.9rem\", color:\"#24292e\", backgroundColor:\"#eff3f6\", border:\"1px solid rgba(27,31,35,.2)\", borderRadius:3, \":hover\":{backgroundColor:\"#e6ebf1\", borderColor:\"rgba(27,31,35,.35)\"}, \":active\":{backgroundColor:\"#e9ecef\", borderColor:\"rgba(27,31,35,.35)\", boxShadow:\"inset 0 0.15em 0.3em rgba(27,31,35,.15)\"}}}, \"View Raw\")), f ? c.jsx(Ba, {highlights:f}) : \n    k ? c.jsx(Aa, {path:b, uri:k}) : c.jsx(Ca, null));\n  }\n  function fa() {\n    var a = R([\"\\n  .code-listing {\\n    background: #fbfdff;\\n    color: #383a42;\\n  }\\n  .code-comment,\\n  .code-quote {\\n    color: #a0a1a7;\\n    font-style: italic;\\n  }\\n  .code-doctag,\\n  .code-keyword,\\n  .code-link,\\n  .code-formula {\\n    color: #a626a4;\\n  }\\n  .code-section,\\n  .code-name,\\n  .code-selector-tag,\\n  .code-deletion,\\n  .code-subst {\\n    color: #e45649;\\n  }\\n  .code-literal {\\n    color: #0184bb;\\n  }\\n  .code-string,\\n  .code-regexp,\\n  .code-addition,\\n  .code-attribute,\\n  .code-meta-string {\\n    color: #50a14f;\\n  }\\n  .code-built_in,\\n  .code-class .code-title {\\n    color: #c18401;\\n  }\\n  .code-attr,\\n  .code-variable,\\n  .code-template-variable,\\n  .code-type,\\n  .code-selector-class,\\n  .code-selector-attr,\\n  .code-selector-pseudo,\\n  .code-number {\\n    color: #986801;\\n  }\\n  .code-symbol,\\n  .code-bullet,\\n  .code-meta,\\n  .code-selector-id,\\n  .code-title {\\n    color: #4078f2;\\n  }\\n  .code-emphasis {\\n    font-style: italic;\\n  }\\n  .code-strong {\\n    font-weight: bold;\\n  }\\n\"]);\n    fa = function() {\n      return a;\n    };\n    return a;\n  }\n  function ha() {\n    var a = R([\"\\n  html {\\n    box-sizing: border-box;\\n  }\\n  *,\\n  *:before,\\n  *:after {\\n    box-sizing: inherit;\\n  }\\n\\n  html,\\n  body,\\n  #root {\\n    height: 100%;\\n    margin: 0;\\n  }\\n\\n  body {\\n    \", \"\\n    font-size: 16px;\\n    line-height: 1.5;\\n    background: white;\\n    color: black;\\n  }\\n\\n  code {\\n    \", \"\\n  }\\n\\n  th,\\n  td {\\n    padding: 0;\\n  }\\n\\n  select {\\n    font-size: inherit;\\n  }\\n\\n  #root {\\n    display: flex;\\n    flex-direction: column;\\n  }\\n\"]);\n    ha = function() {\n      return a;\n    };\n    return a;\n  }\n  function ia(a) {\n    var b = a.packageName, d = a.packageVersion, h = a.availableVersions;\n    h = void 0 === h ? [] : h;\n    var f = a.filename;\n    a = a.target;\n    var k = [];\n    if (\"/\" === f) {\n      k.push(b);\n    } else {\n      var r = \"/browse/\" + b + \"@\" + d;\n      k.push(c.jsx(\"a\", {href:r + \"/\", css:ja}, b));\n      f = f.replace(/^\\/+/, \"\").replace(/\\/+$/, \"\").split(\"/\");\n      var l = f.pop();\n      f.forEach(function(a) {\n        r += \"/\" + a;\n        k.push(c.jsx(\"a\", {href:r + \"/\", css:ja}, a));\n      });\n      k.push(l);\n    }\n    return c.jsx(ta, {packageName:b, packageVersion:d}, c.jsx(t.Fragment, null, c.jsx(c.Global, {styles:Da}), c.jsx(c.Global, {styles:Ea}), c.jsx(\"div\", {css:{flex:\"1 0 auto\"}}, c.jsx(\"div\", {css:{maxWidth:940, padding:\"0 20px\", margin:\"0 auto\"}}, c.jsx(\"header\", {css:{textAlign:\"center\"}}, c.jsx(\"h1\", {css:{fontSize:\"3rem\", marginTop:\"2rem\"}}, c.jsx(\"a\", {href:\"/\", css:{color:\"#000\", textDecoration:\"none\"}}, \"UNPKG\"))), c.jsx(\"header\", {css:{display:\"flex\", flexDirection:\"row\", alignItems:\"center\", \n    \"@media (max-width: 700px)\":{flexDirection:\"column-reverse\", alignItems:\"flex-start\"}}}, c.jsx(\"h1\", {css:{fontSize:\"1.5rem\", fontWeight:\"normal\", flex:1}}, c.jsx(\"nav\", null, k.map(function(a, b, d) {\n      return c.jsx(\"span\", {key:b}, 0 !== b && c.jsx(\"span\", {css:{paddingLeft:5, paddingRight:5}}, \"/\"), b === d.length - 1 ? c.jsx(\"strong\", null, a) : a);\n    }))), c.jsx(\"p\", {css:{marginLeft:20, \"@media (max-width: 700px)\":{marginLeft:0, marginBottom:0}}}, c.jsx(\"label\", null, \"Version:\", \" \", c.jsx(\"select\", {name:\"version\", defaultValue:d, onChange:function(a) {\n      window.location.href = window.location.href.replace(\"@\" + d, \"@\" + a.target.value);\n    }, css:{appearance:\"none\", cursor:\"pointer\", padding:\"4px 24px 4px 8px\", fontWeight:600, fontSize:\"0.9em\", color:\"#24292e\", border:\"1px solid rgba(27,31,35,.2)\", borderRadius:3, backgroundColor:\"#eff3f6\", backgroundImage:\"url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAYAAAC9vt6cAAAAAXNSR0IArs4c6QAAARFJREFUKBVjZAACNS39RhBNKrh17WI9o4quoT3Dn78HSNUMUs/CzOTI/O7Vi4dCYpJ3/jP+92BkYGAlyiBGhm8MjIxJt65e3MQM0vDu9YvLYmISILYZELOBxHABRkaGr0yMzF23r12YDFIDNgDEePv65SEhEXENBkYGFSAXuyGMjF8Z/jOsvX3tYiFIDwgwQSgIaaijnvj/P8M5IO8HsjiY/f//D4b//88A1SQhywG9jQr09PS4v/1mPAeUUPzP8B8cJowMjL+Bqu6xMQmaXL164AuyDgwDQJLa2qYSP//9vARkCoMVMzK8YeVkNbh+9uxzMB+JwGoASF5Vx0jz/98/18BqmZi171w9D2EjaaYKEwAEK00XQLdJuwAAAABJRU5ErkJggg==)\", \n    backgroundPosition:\"right 8px center\", backgroundRepeat:\"no-repeat\", backgroundSize:\"auto 25%\", \":hover\":{backgroundColor:\"#e6ebf1\", borderColor:\"rgba(27,31,35,.35)\"}, \":active\":{backgroundColor:\"#e9ecef\", borderColor:\"rgba(27,31,35,.35)\", boxShadow:\"inset 0 0.15em 0.3em rgba(27,31,35,.15)\"}}}, h.map(function(a) {\n      return c.jsx(\"option\", {key:a, value:a}, a);\n    })))))), c.jsx(\"div\", {css:{maxWidth:940, padding:\"0 20px\", margin:\"0 auto\", \"@media (max-width: 700px)\":{padding:0, margin:0}}}, \"directory\" === a.type ? c.jsx(ba, {path:a.path, details:a.details}) : \"file\" === a.type ? c.jsx(ea, {path:a.path, details:a.details}) : null)), c.jsx(\"footer\", {css:{marginTop:\"5rem\", background:\"black\", color:\"#aaa\"}}, c.jsx(\"div\", {css:{maxWidth:940, padding:\"10px 20px\", margin:\"0 auto\", display:\"flex\", flexDirection:\"row\", alignItems:\"center\", justifyContent:\"space-between\"}}, \n    c.jsx(\"p\", null, \"\\u00a9 \", (new Date).getFullYear(), \" UNPKG\"), c.jsx(\"p\", {css:{fontSize:\"1.5rem\"}}, c.jsx(\"a\", {title:\"Twitter\", href:\"https://twitter.com/unpkg\", css:{color:\"#aaa\", display:\"inline-block\", \":hover\":{color:\"white\"}}}, c.jsx(xa, null)), c.jsx(\"a\", {title:\"GitHub\", href:\"https://github.com/mjackson/unpkg\", css:{color:\"#aaa\", display:\"inline-block\", marginLeft:\"1rem\", \":hover\":{color:\"white\"}}}, c.jsx(ya, null)))))));\n  }\n  var M = \"default\" in t ? t[\"default\"] : t;\n  z = z && z.hasOwnProperty(\"default\") ? z[\"default\"] : z;\n  var Fa = \"undefined\" !== typeof globalThis ? globalThis : \"undefined\" !== typeof window ? window : \"undefined\" !== typeof global ? global : \"undefined\" !== typeof self ? self : {}, m = D(function(a, b) {\n    function d(a) {\n      if (\"object\" === typeof a && null !== a) {\n        var b = a.$$typeof;\n        switch(b) {\n          case f:\n            switch(a = a.type, a) {\n              case g:\n              case e:\n              case r:\n              case m:\n              case l:\n              case u:\n                return a;\n              default:\n                switch(a = a && a.$$typeof, a) {\n                  case p:\n                  case n:\n                  case q:\n                    return a;\n                  default:\n                    return b;\n                }\n            }case w:\n          case v:\n          case k:\n            return b;\n        }\n      }\n    }\n    function c(a) {\n      return d(a) === e;\n    }\n    Object.defineProperty(b, \"__esModule\", {value:!0});\n    var f = (a = \"function\" === typeof Symbol && Symbol.for) ? Symbol.for(\"react.element\") : 60103, k = a ? Symbol.for(\"react.portal\") : 60106, r = a ? Symbol.for(\"react.fragment\") : 60107, l = a ? Symbol.for(\"react.strict_mode\") : 60108, m = a ? Symbol.for(\"react.profiler\") : 60114, q = a ? Symbol.for(\"react.provider\") : 60109, p = a ? Symbol.for(\"react.context\") : 60110, g = a ? Symbol.for(\"react.async_mode\") : 60111, e = a ? Symbol.for(\"react.concurrent_mode\") : 60111, n = a ? Symbol.for(\"react.forward_ref\") : \n    60112, u = a ? Symbol.for(\"react.suspense\") : 60113, v = a ? Symbol.for(\"react.memo\") : 60115, w = a ? Symbol.for(\"react.lazy\") : 60116;\n    b.typeOf = d;\n    b.AsyncMode = g;\n    b.ConcurrentMode = e;\n    b.ContextConsumer = p;\n    b.ContextProvider = q;\n    b.Element = f;\n    b.ForwardRef = n;\n    b.Fragment = r;\n    b.Lazy = w;\n    b.Memo = v;\n    b.Portal = k;\n    b.Profiler = m;\n    b.StrictMode = l;\n    b.Suspense = u;\n    b.isValidElementType = function(a) {\n      return \"string\" === typeof a || \"function\" === typeof a || a === r || a === e || a === m || a === l || a === u || \"object\" === typeof a && null !== a && (a.$$typeof === w || a.$$typeof === v || a.$$typeof === q || a.$$typeof === p || a.$$typeof === n);\n    };\n    b.isAsyncMode = function(a) {\n      return c(a) || d(a) === g;\n    };\n    b.isConcurrentMode = c;\n    b.isContextConsumer = function(a) {\n      return d(a) === p;\n    };\n    b.isContextProvider = function(a) {\n      return d(a) === q;\n    };\n    b.isElement = function(a) {\n      return \"object\" === typeof a && null !== a && a.$$typeof === f;\n    };\n    b.isForwardRef = function(a) {\n      return d(a) === n;\n    };\n    b.isFragment = function(a) {\n      return d(a) === r;\n    };\n    b.isLazy = function(a) {\n      return d(a) === w;\n    };\n    b.isMemo = function(a) {\n      return d(a) === v;\n    };\n    b.isPortal = function(a) {\n      return d(a) === k;\n    };\n    b.isProfiler = function(a) {\n      return d(a) === m;\n    };\n    b.isStrictMode = function(a) {\n      return d(a) === l;\n    };\n    b.isSuspense = function(a) {\n      return d(a) === u;\n    };\n  });\n  S(m);\n  var la = D(function(a, b) {\n    (function() {\n      function a(a) {\n        if (\"object\" === typeof a && null !== a) {\n          var b = a.$$typeof;\n          switch(b) {\n            case k:\n              switch(a = a.type, a) {\n                case e:\n                case n:\n                case l:\n                case q:\n                case m:\n                case v:\n                  return a;\n                default:\n                  switch(a = a && a.$$typeof, a) {\n                    case g:\n                    case u:\n                    case p:\n                      return a;\n                    default:\n                      return b;\n                  }\n              }case I:\n            case w:\n            case r:\n              return b;\n          }\n        }\n      }\n      function c(b) {\n        return a(b) === n;\n      }\n      Object.defineProperty(b, \"__esModule\", {value:!0});\n      var f = \"function\" === typeof Symbol && Symbol.for, k = f ? Symbol.for(\"react.element\") : 60103, r = f ? Symbol.for(\"react.portal\") : 60106, l = f ? Symbol.for(\"react.fragment\") : 60107, m = f ? Symbol.for(\"react.strict_mode\") : 60108, q = f ? Symbol.for(\"react.profiler\") : 60114, p = f ? Symbol.for(\"react.provider\") : 60109, g = f ? Symbol.for(\"react.context\") : 60110, e = f ? Symbol.for(\"react.async_mode\") : 60111, n = f ? Symbol.for(\"react.concurrent_mode\") : 60111, u = f ? Symbol.for(\"react.forward_ref\") : \n      60112, v = f ? Symbol.for(\"react.suspense\") : 60113, w = f ? Symbol.for(\"react.memo\") : 60115, I = f ? Symbol.for(\"react.lazy\") : 60116;\n      f = function() {\n      };\n      var Ga = function(a) {\n        for (var b = arguments.length, e = Array(1 < b ? b - 1 : 0), n = 1; n < b; n++) {\n          e[n - 1] = arguments[n];\n        }\n        var c = 0;\n        b = \"Warning: \" + a.replace(/%s/g, function() {\n          return e[c++];\n        });\n        \"undefined\" !== typeof console && console.warn(b);\n        try {\n          throw Error(b);\n        } catch (Ra) {\n        }\n      }, Ha = f = function(a, b) {\n        if (void 0 === b) {\n          throw Error(\"`lowPriorityWarning(condition, format, ...args)` requires a warning message argument\");\n        }\n        if (!a) {\n          for (var e = arguments.length, n = Array(2 < e ? e - 2 : 0), c = 2; c < e; c++) {\n            n[c - 2] = arguments[c];\n          }\n          Ga.apply(void 0, [b].concat(n));\n        }\n      }, ka = !1;\n      b.typeOf = a;\n      b.AsyncMode = e;\n      b.ConcurrentMode = n;\n      b.ContextConsumer = g;\n      b.ContextProvider = p;\n      b.Element = k;\n      b.ForwardRef = u;\n      b.Fragment = l;\n      b.Lazy = I;\n      b.Memo = w;\n      b.Portal = r;\n      b.Profiler = q;\n      b.StrictMode = m;\n      b.Suspense = v;\n      b.isValidElementType = function(a) {\n        return \"string\" === typeof a || \"function\" === typeof a || a === l || a === n || a === q || a === m || a === v || \"object\" === typeof a && null !== a && (a.$$typeof === I || a.$$typeof === w || a.$$typeof === p || a.$$typeof === g || a.$$typeof === u);\n      };\n      b.isAsyncMode = function(b) {\n        ka || (ka = !0, Ha(!1, \"The ReactIs.isAsyncMode() alias has been deprecated, and will be removed in React 17+. Update your code to use ReactIs.isConcurrentMode() instead. It has the exact same API.\"));\n        return c(b) || a(b) === e;\n      };\n      b.isConcurrentMode = c;\n      b.isContextConsumer = function(b) {\n        return a(b) === g;\n      };\n      b.isContextProvider = function(b) {\n        return a(b) === p;\n      };\n      b.isElement = function(a) {\n        return \"object\" === typeof a && null !== a && a.$$typeof === k;\n      };\n      b.isForwardRef = function(b) {\n        return a(b) === u;\n      };\n      b.isFragment = function(b) {\n        return a(b) === l;\n      };\n      b.isLazy = function(b) {\n        return a(b) === I;\n      };\n      b.isMemo = function(b) {\n        return a(b) === w;\n      };\n      b.isPortal = function(b) {\n        return a(b) === r;\n      };\n      b.isProfiler = function(b) {\n        return a(b) === q;\n      };\n      b.isStrictMode = function(b) {\n        return a(b) === m;\n      };\n      b.isSuspense = function(b) {\n        return a(b) === v;\n      };\n    })();\n  });\n  S(la);\n  var ma = D(function(a) {\n    a.exports = la;\n  }), na = Object.getOwnPropertySymbols, Ia = Object.prototype.hasOwnProperty, Ja = Object.prototype.propertyIsEnumerable, Ka = function() {\n    try {\n      if (!Object.assign) {\n        return !1;\n      }\n      var a = new String(\"abc\");\n      a[5] = \"de\";\n      if (\"5\" === Object.getOwnPropertyNames(a)[0]) {\n        return !1;\n      }\n      var b = {};\n      for (a = 0; 10 > a; a++) {\n        b[\"_\" + String.fromCharCode(a)] = a;\n      }\n      if (\"0123456789\" !== Object.getOwnPropertyNames(b).map(function(a) {\n        return b[a];\n      }).join(\"\")) {\n        return !1;\n      }\n      var c = {};\n      \"abcdefghijklmnopqrst\".split(\"\").forEach(function(a) {\n        c[a] = a;\n      });\n      return \"abcdefghijklmnopqrst\" !== Object.keys(Object.assign({}, c)).join(\"\") ? !1 : !0;\n    } catch (h) {\n      return !1;\n    }\n  }() ? Object.assign : function(a, b) {\n    if (null === a || void 0 === a) {\n      throw new TypeError(\"Object.assign cannot be called with null or undefined\");\n    }\n    var c = Object(a);\n    for (var h, f = 1; f < arguments.length; f++) {\n      var k = Object(arguments[f]);\n      for (var r in k) {\n        Ia.call(k, r) && (c[r] = k[r]);\n      }\n      if (na) {\n        h = na(k);\n        for (var l = 0; l < h.length; l++) {\n          Ja.call(k, h[l]) && (c[h[l]] = k[h[l]]);\n        }\n      }\n    }\n    return c;\n  }, K = function() {\n  }, L = {}, sa = Function.call.bind(Object.prototype.hasOwnProperty);\n  K = function(a) {\n    a = \"Warning: \" + a;\n    \"undefined\" !== typeof console && console.error(a);\n    try {\n      throw Error(a);\n    } catch (b) {\n    }\n  };\n  J.resetWarningCache = function() {\n    L = {};\n  };\n  var La = Function.call.bind(Object.prototype.hasOwnProperty), C = function() {\n  };\n  C = function(a) {\n    a = \"Warning: \" + a;\n    \"undefined\" !== typeof console && console.error(a);\n    try {\n      throw Error(a);\n    } catch (b) {\n    }\n  };\n  var Ma = function(a, b) {\n    function c(a, b) {\n      return a === b ? 0 !== a || 1 / a === 1 / b : a !== a && b !== b;\n    }\n    function h(a) {\n      this.message = a;\n      this.stack = \"\";\n    }\n    function f(a) {\n      function e(e, n, g, u, f, k, v) {\n        u = u || \"<<anonymous>>\";\n        k = k || g;\n        if (\"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\" !== v) {\n          if (b) {\n            throw e = Error(\"Calling PropTypes validators directly is not supported by the `prop-types` package. Use `PropTypes.checkPropTypes()` to call them. Read more at http://fb.me/use-check-prop-types\"), e.name = \"Invariant Violation\", e;\n          }\n          \"undefined\" !== typeof console && (v = u + \":\" + g, !c[v] && 3 > d && (C(\"You are manually calling a React.PropTypes validation function for the `\" + k + \"` prop on `\" + u + \"`. This is deprecated and will throw in the standalone `prop-types` package. You may be seeing this warning due to a third-party PropTypes library. See https://fb.me/react-warning-dont-call-proptypes for details.\"), c[v] = !0, d++));\n        }\n        return null == n[g] ? e ? null === n[g] ? new h(\"The \" + f + \" `\" + k + \"` is marked as required \" + (\"in `\" + u + \"`, but its value is `null`.\")) : new h(\"The \" + f + \" `\" + k + \"` is marked as required in \" + (\"`\" + u + \"`, but its value is `undefined`.\")) : null : a(n, g, u, f, k);\n      }\n      var c = {}, d = 0, g = e.bind(null, !1);\n      g.isRequired = e.bind(null, !0);\n      return g;\n    }\n    function k(a) {\n      return f(function(b, e, c, d, g, f) {\n        b = b[e];\n        return l(b) !== a ? (b = m(b), new h(\"Invalid \" + d + \" `\" + g + \"` of type \" + (\"`\" + b + \"` supplied to `\" + c + \"`, expected \") + (\"`\" + a + \"`.\"))) : null;\n      });\n    }\n    function r(b) {\n      switch(typeof b) {\n        case \"number\":\n        case \"string\":\n        case \"undefined\":\n          return !0;\n        case \"boolean\":\n          return !b;\n        case \"object\":\n          if (Array.isArray(b)) {\n            return b.every(r);\n          }\n          if (null === b || a(b)) {\n            return !0;\n          }\n          var e = b && (p && b[p] || b[\"@@iterator\"]);\n          var c = \"function\" === typeof e ? e : void 0;\n          if (c) {\n            if (e = c.call(b), c !== b.entries) {\n              for (; !(b = e.next()).done;) {\n                if (!r(b.value)) {\n                  return !1;\n                }\n              }\n            } else {\n              for (; !(b = e.next()).done;) {\n                if ((b = b.value) && !r(b[1])) {\n                  return !1;\n                }\n              }\n            }\n          } else {\n            return !1;\n          }\n          return !0;\n        default:\n          return !1;\n      }\n    }\n    function l(a) {\n      var b = typeof a;\n      return Array.isArray(a) ? \"array\" : a instanceof RegExp ? \"object\" : \"symbol\" === b || a && (\"Symbol\" === a[\"@@toStringTag\"] || \"function\" === typeof Symbol && a instanceof Symbol) ? \"symbol\" : b;\n    }\n    function m(a) {\n      if (\"undefined\" === typeof a || null === a) {\n        return \"\" + a;\n      }\n      var b = l(a);\n      if (\"object\" === b) {\n        if (a instanceof Date) {\n          return \"date\";\n        }\n        if (a instanceof RegExp) {\n          return \"regexp\";\n        }\n      }\n      return b;\n    }\n    function q(a) {\n      a = m(a);\n      switch(a) {\n        case \"array\":\n        case \"object\":\n          return \"an \" + a;\n        case \"boolean\":\n        case \"date\":\n        case \"regexp\":\n          return \"a \" + a;\n        default:\n          return a;\n      }\n    }\n    var p = \"function\" === typeof Symbol && Symbol.iterator, g = {array:k(\"array\"), bool:k(\"boolean\"), func:k(\"function\"), number:k(\"number\"), object:k(\"object\"), string:k(\"string\"), symbol:k(\"symbol\"), any:f(E), arrayOf:function(a) {\n      return f(function(b, c, e, d, g) {\n        if (\"function\" !== typeof a) {\n          return new h(\"Property `\" + g + \"` of component `\" + e + \"` has invalid PropType notation inside arrayOf.\");\n        }\n        b = b[c];\n        if (!Array.isArray(b)) {\n          return b = l(b), new h(\"Invalid \" + d + \" `\" + g + \"` of type \" + (\"`\" + b + \"` supplied to `\" + e + \"`, expected an array.\"));\n        }\n        for (c = 0; c < b.length; c++) {\n          var n = a(b, c, e, d, g + \"[\" + c + \"]\", \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n          if (n instanceof Error) {\n            return n;\n          }\n        }\n        return null;\n      });\n    }, element:function() {\n      return f(function(b, c, d, g, f) {\n        b = b[c];\n        return a(b) ? null : (b = l(b), new h(\"Invalid \" + g + \" `\" + f + \"` of type \" + (\"`\" + b + \"` supplied to `\" + d + \"`, expected a single ReactElement.\")));\n      });\n    }(), elementType:function() {\n      return f(function(a, b, c, d, g) {\n        a = a[b];\n        return ma.isValidElementType(a) ? null : (a = l(a), new h(\"Invalid \" + d + \" `\" + g + \"` of type \" + (\"`\" + a + \"` supplied to `\" + c + \"`, expected a single ReactElement type.\")));\n      });\n    }(), instanceOf:function(a) {\n      return f(function(b, c, e, d, g) {\n        if (!(b[c] instanceof a)) {\n          var n = a.name || \"<<anonymous>>\";\n          b = b[c];\n          b = b.constructor && b.constructor.name ? b.constructor.name : \"<<anonymous>>\";\n          return new h(\"Invalid \" + d + \" `\" + g + \"` of type \" + (\"`\" + b + \"` supplied to `\" + e + \"`, expected \") + (\"instance of `\" + n + \"`.\"));\n        }\n        return null;\n      });\n    }, node:function() {\n      return f(function(a, b, c, d, g) {\n        return r(a[b]) ? null : new h(\"Invalid \" + d + \" `\" + g + \"` supplied to \" + (\"`\" + c + \"`, expected a ReactNode.\"));\n      });\n    }(), objectOf:function(a) {\n      return f(function(b, c, e, d, g) {\n        if (\"function\" !== typeof a) {\n          return new h(\"Property `\" + g + \"` of component `\" + e + \"` has invalid PropType notation inside objectOf.\");\n        }\n        b = b[c];\n        c = l(b);\n        if (\"object\" !== c) {\n          return new h(\"Invalid \" + d + \" `\" + g + \"` of type \" + (\"`\" + c + \"` supplied to `\" + e + \"`, expected an object.\"));\n        }\n        for (var n in b) {\n          if (La(b, n) && (c = a(b, n, e, d, g + \".\" + n, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\"), c instanceof Error)) {\n            return c;\n          }\n        }\n        return null;\n      });\n    }, oneOf:function(a) {\n      return Array.isArray(a) ? f(function(b, e, g, d, f) {\n        b = b[e];\n        for (e = 0; e < a.length; e++) {\n          if (c(b, a[e])) {\n            return null;\n          }\n        }\n        e = JSON.stringify(a, function(a, b) {\n          return \"symbol\" === m(b) ? String(b) : b;\n        });\n        return new h(\"Invalid \" + d + \" `\" + f + \"` of value `\" + String(b) + \"` \" + (\"supplied to `\" + g + \"`, expected one of \" + e + \".\"));\n      }) : (1 < arguments.length ? C(\"Invalid arguments supplied to oneOf, expected an array, got \" + arguments.length + \" arguments. A common mistake is to write oneOf(x, y, z) instead of oneOf([x, y, z]).\") : C(\"Invalid argument supplied to oneOf, expected an array.\"), E);\n    }, oneOfType:function(a) {\n      if (!Array.isArray(a)) {\n        return C(\"Invalid argument supplied to oneOfType, expected an instance of array.\"), E;\n      }\n      for (var b = 0; b < a.length; b++) {\n        var c = a[b];\n        if (\"function\" !== typeof c) {\n          return C(\"Invalid argument supplied to oneOfType. Expected an array of check functions, but received \" + q(c) + \" at index \" + b + \".\"), E;\n        }\n      }\n      return f(function(b, c, e, g, d) {\n        for (var f = 0; f < a.length; f++) {\n          if (null == (0,a[f])(b, c, e, g, d, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n            return null;\n          }\n        }\n        return new h(\"Invalid \" + g + \" `\" + d + \"` supplied to \" + (\"`\" + e + \"`.\"));\n      });\n    }, shape:function(a) {\n      return f(function(b, c, e, g, d) {\n        b = b[c];\n        c = l(b);\n        if (\"object\" !== c) {\n          return new h(\"Invalid \" + g + \" `\" + d + \"` of type `\" + c + \"` \" + (\"supplied to `\" + e + \"`, expected `object`.\"));\n        }\n        for (var f in a) {\n          if (c = a[f]) {\n            if (c = c(b, f, e, g, d + \".\" + f, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n              return c;\n            }\n          }\n        }\n        return null;\n      });\n    }, exact:function(a) {\n      return f(function(b, c, g, d, e) {\n        var f = b[c], n = l(f);\n        if (\"object\" !== n) {\n          return new h(\"Invalid \" + d + \" `\" + e + \"` of type `\" + n + \"` \" + (\"supplied to `\" + g + \"`, expected `object`.\"));\n        }\n        n = Ka({}, b[c], a);\n        for (var k in n) {\n          n = a[k];\n          if (!n) {\n            return new h(\"Invalid \" + d + \" `\" + e + \"` key `\" + k + \"` supplied to `\" + g + \"`.\\nBad object: \" + JSON.stringify(b[c], null, \"  \") + \"\\nValid keys: \" + JSON.stringify(Object.keys(a), null, \"  \"));\n          }\n          if (n = n(f, k, g, d, e + \".\" + k, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n            return n;\n          }\n        }\n        return null;\n      });\n    }};\n    h.prototype = Error.prototype;\n    g.checkPropTypes = J;\n    g.resetWarningCache = J.resetWarningCache;\n    return g.PropTypes = g;\n  };\n  m = D(function(a) {\n    a.exports = Ma(ma.isElement, !0);\n  });\n  var T = t.createContext(), Na = Object.assign || function(a) {\n    for (var b = 1; b < arguments.length; b++) {\n      var c = arguments[b], h;\n      for (h in c) {\n        Object.prototype.hasOwnProperty.call(c, h) && (a[h] = c[h]);\n      }\n    }\n    return a;\n  }, Oa = {border:0, clip:\"rect(0 0 0 0)\", height:\"1px\", width:\"1px\", margin:\"-1px\", padding:0, overflow:\"hidden\", position:\"absolute\"}, H = function(a) {\n    return M.createElement(\"div\", Na({style:Oa}, a));\n  }, oa = D(function(a) {\n    (function(b, c) {\n      a.exports = c();\n    })(Fa, function() {\n      function a(a) {\n        if (!a) {\n          return !0;\n        }\n        if (!f(a) || 0 !== a.length) {\n          for (var b in a) {\n            if (q.call(a, b)) {\n              return !1;\n            }\n          }\n        }\n        return !0;\n      }\n      function c(a) {\n        return \"number\" === typeof a || \"[object Number]\" === t.call(a);\n      }\n      function h(a) {\n        return \"string\" === typeof a || \"[object String]\" === t.call(a);\n      }\n      function f(a) {\n        return \"object\" === typeof a && \"number\" === typeof a.length && \"[object Array]\" === t.call(a);\n      }\n      function k(a) {\n        var b = parseInt(a);\n        return b.toString() === a ? b : a;\n      }\n      function m(b, e, d, f) {\n        c(e) && (e = [e]);\n        if (a(e)) {\n          return b;\n        }\n        if (h(e)) {\n          return m(b, e.split(\".\"), d, f);\n        }\n        var g = k(e[0]);\n        if (1 === e.length) {\n          return e = b[g], void 0 !== e && f || (b[g] = d), e;\n        }\n        void 0 === b[g] && (c(g) ? b[g] = [] : b[g] = {});\n        return m(b[g], e.slice(1), d, f);\n      }\n      function l(b, e) {\n        c(e) && (e = [e]);\n        if (!a(b)) {\n          if (a(e)) {\n            return b;\n          }\n          if (h(e)) {\n            return l(b, e.split(\".\"));\n          }\n          var d = k(e[0]), g = b[d];\n          if (1 === e.length) {\n            void 0 !== g && (f(b) ? b.splice(d, 1) : delete b[d]);\n          } else {\n            if (void 0 !== b[d]) {\n              return l(b[d], e.slice(1));\n            }\n          }\n          return b;\n        }\n      }\n      var t = Object.prototype.toString, q = Object.prototype.hasOwnProperty, p = {ensureExists:function(a, b, c) {\n        return m(a, b, c, !0);\n      }, set:function(a, b, c, d) {\n        return m(a, b, c, d);\n      }, insert:function(a, b, c, d) {\n        var e = p.get(a, b);\n        d = ~~d;\n        f(e) || (e = [], p.set(a, b, e));\n        e.splice(d, 0, c);\n      }, empty:function(b, d) {\n        if (a(d)) {\n          return b;\n        }\n        if (!a(b)) {\n          var e, g;\n          if (!(e = p.get(b, d))) {\n            return b;\n          }\n          if (h(e)) {\n            return p.set(b, d, \"\");\n          }\n          if (\"boolean\" === typeof e || \"[object Boolean]\" === t.call(e)) {\n            return p.set(b, d, !1);\n          }\n          if (c(e)) {\n            return p.set(b, d, 0);\n          }\n          if (f(e)) {\n            e.length = 0;\n          } else {\n            if (\"object\" === typeof e && \"[object Object]\" === t.call(e)) {\n              for (g in e) {\n                q.call(e, g) && delete e[g];\n              }\n            } else {\n              return p.set(b, d, null);\n            }\n          }\n        }\n      }, push:function(a, b) {\n        var c = p.get(a, b);\n        f(c) || (c = [], p.set(a, b, c));\n        c.push.apply(c, Array.prototype.slice.call(arguments, 2));\n      }, coalesce:function(a, b, c) {\n        for (var d, e = 0, f = b.length; e < f; e++) {\n          if (void 0 !== (d = p.get(a, b[e]))) {\n            return d;\n          }\n        }\n        return c;\n      }, get:function(b, d, f) {\n        c(d) && (d = [d]);\n        if (a(d)) {\n          return b;\n        }\n        if (a(b)) {\n          return f;\n        }\n        if (h(d)) {\n          return p.get(b, d.split(\".\"), f);\n        }\n        var e = k(d[0]);\n        return 1 === d.length ? void 0 === b[e] ? f : b[e] : p.get(b[e], d.slice(1), f);\n      }, del:function(a, b) {\n        return l(a, b);\n      }};\n      return p;\n    });\n  });\n  var pa = function(a) {\n    return function(b) {\n      return typeof b === a;\n    };\n  };\n  var Pa = function(a, b) {\n    var c = 1, h = b || function(a, b) {\n      return b;\n    };\n    \"-\" === a[0] && (c = -1, a = a.substr(1));\n    return function(b, d) {\n      var f;\n      b = h(a, oa.get(b, a));\n      d = h(a, oa.get(d, a));\n      b < d && (f = -1);\n      b > d && (f = 1);\n      b === d && (f = 0);\n      return f * c;\n    };\n  };\n  var ca = function() {\n    var a = Array.prototype.slice.call(arguments), b = a.filter(pa(\"string\")), c = a.filter(pa(\"function\"))[0];\n    return function(a, d) {\n      for (var f = b.length, h = 0, l = 0; 0 === h && l < f;) {\n        h = Pa(b[l], c)(a, d), l++;\n      }\n      return h;\n    };\n  };\n  let qa = \"B kB MB GB TB PB EB ZB YB\".split(\" \"), ra = (a, b) => {\n    let c = a;\n    \"string\" === typeof b ? c = a.toLocaleString(b) : !0 === b && (c = a.toLocaleString());\n    return c;\n  };\n  var da = (a, b) => {\n    if (!Number.isFinite(a)) {\n      throw new TypeError(`Expected a finite number, got ${typeof a}: ${a}`);\n    }\n    b = Object.assign({}, b);\n    if (b.signed && 0 === a) {\n      return \" 0 B\";\n    }\n    var c = 0 > a;\n    let h = c ? \"-\" : b.signed ? \"+\" : \"\";\n    c && (a = -a);\n    if (1 > a) {\n      return a = ra(a, b.locale), h + a + \" B\";\n    }\n    c = Math.min(Math.floor(Math.log10(a) / 3), qa.length - 1);\n    a = Number((a / Math.pow(1000, c)).toPrecision(3));\n    a = ra(a, b.locale);\n    return h + a + \" \" + qa[c];\n  }, W = {color:void 0, size:void 0, className:void 0, style:void 0, attr:void 0}, V = t.createContext && t.createContext(W), y = function() {\n    y = Object.assign || function(a) {\n      for (var b, c = 1, h = arguments.length; c < h; c++) {\n        b = arguments[c];\n        for (var f in b) {\n          Object.prototype.hasOwnProperty.call(b, f) && (a[f] = b[f]);\n        }\n      }\n      return a;\n    };\n    return y.apply(this, arguments);\n  }, X = function(a) {\n    return F({tag:\"svg\", attr:{viewBox:\"0 0 14 16\"}, child:[{tag:\"path\", attr:{fillRule:\"evenodd\", d:\"M13 4H7V3c0-.66-.31-1-1-1H1c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1V5c0-.55-.45-1-1-1zM6 4H1V3h5v1z\"}}]})(a);\n  };\n  X.displayName = \"GoFileDirectory\";\n  var Y = function(a) {\n    return F({tag:\"svg\", attr:{viewBox:\"0 0 12 16\"}, child:[{tag:\"path\", attr:{fillRule:\"evenodd\", d:\"M6 5H2V4h4v1zM2 8h7V7H2v1zm0 2h7V9H2v1zm0 2h7v-1H2v1zm10-7.5V14c0 .55-.45 1-1 1H1c-.55 0-1-.45-1-1V2c0-.55.45-1 1-1h7.5L12 4.5zM11 5L8 2H1v12h10V5z\"}}]})(a);\n  };\n  Y.displayName = \"GoFile\";\n  var aa = function(a) {\n    return F({tag:\"svg\", attr:{viewBox:\"0 0 496 512\"}, child:[{tag:\"path\", attr:{d:\"M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z\"}}]})(a);\n  };\n  aa.displayName = \"FaGithub\";\n  var Z = function(a) {\n    return F({tag:\"svg\", attr:{viewBox:\"0 0 512 512\"}, child:[{tag:\"path\", attr:{d:\"M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z\"}}]})(a);\n  };\n  Z.displayName = \"FaTwitter\";\n  var O = {color:\"#0076ff\", textDecoration:\"none\", \":hover\":{textDecoration:\"underline\"}}, x = {paddingTop:6, paddingRight:3, paddingBottom:6, paddingLeft:3, borderTop:\"1px solid #eaecef\"}, N = A({}, x, {color:\"#424242\", width:17, paddingRight:2, paddingLeft:10, \"@media (max-width: 700px)\":{paddingLeft:20}}), P = A({}, x, {textAlign:\"right\", paddingRight:10, \"@media (max-width: 700px)\":{paddingRight:20}});\n  ba.propTypes = {path:m.string.isRequired, details:m.objectOf(m.shape({path:m.string.isRequired, type:m.oneOf([\"directory\", \"file\"]).isRequired, contentType:m.string, integrity:m.string, size:m.number})).isRequired};\n  ea.propTypes = {path:m.string.isRequired, details:m.shape({contentType:m.string.isRequired, highlights:m.arrayOf(m.string), uri:m.string, integrity:m.string.isRequired, language:m.string.isRequired, size:m.number.isRequired}).isRequired};\n  var Da = c.css(ha(), '\\nfont-family: -apple-system,\\n  BlinkMacSystemFont,\\n  \"Segoe UI\",\\n  \"Roboto\",\\n  \"Oxygen\",\\n  \"Ubuntu\",\\n  \"Cantarell\",\\n  \"Fira Sans\",\\n  \"Droid Sans\",\\n  \"Helvetica Neue\",\\n  sans-serif;\\n', \"\\nfont-family: Menlo,\\n  Monaco,\\n  Lucida Console,\\n  Liberation Mono,\\n  DejaVu Sans Mono,\\n  Bitstream Vera Sans Mono,\\n  Courier New,\\n  monospace;\\n\"), Ea = c.css(fa()), ja = {color:\"#0076ff\", textDecoration:\"none\", \":hover\":{textDecoration:\"underline\"}}, Qa = m.shape({path:m.string.isRequired, \n  type:m.oneOf([\"directory\", \"file\"]).isRequired, details:m.object.isRequired});\n  ia.propTypes = {packageName:m.string.isRequired, packageVersion:m.string.isRequired, availableVersions:m.arrayOf(m.string), filename:m.string.isRequired, target:Qa.isRequired};\n  z.hydrate(M.createElement(ia, window.__DATA__ || {}), document.getElementById(\"root\"));\n})(React, ReactDOM, emotionCore);\n\n"}]},{"main":[{"format":"iife","globalImports":["react","react-dom","@emotion/core"],"url":"/_client/main-1241dd6e.js","code":"'use strict';\n(function(u, z, c) {\n  function C() {\n    C = Object.assign || function(a) {\n      for (var b = 1; b < arguments.length; b++) {\n        var d = arguments[b], c;\n        for (c in d) {\n          Object.prototype.hasOwnProperty.call(d, c) && (a[c] = d[c]);\n        }\n      }\n      return a;\n    };\n    return C.apply(this, arguments);\n  }\n  function qa(a, b) {\n    b || (b = a.slice(0));\n    a.raw = b;\n    return a;\n  }\n  function P(a) {\n    return a && a.__esModule && Object.prototype.hasOwnProperty.call(a, \"default\") ? a[\"default\"] : a;\n  }\n  function D(a, b) {\n    return b = {exports:{}}, a(b, b.exports), b.exports;\n  }\n  function I(a, b, d, c, e) {\n    for (var f in a) {\n      if (ra(a, f)) {\n        try {\n          if (\"function\" !== typeof a[f]) {\n            var g = Error((c || \"React class\") + \": \" + d + \" type `\" + f + \"` is invalid; it must be a function, usually from the `prop-types` package, but received `\" + typeof a[f] + \"`.\");\n            g.name = \"Invariant Violation\";\n            throw g;\n          }\n          var l = a[f](b, f, c, d, null, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n        } catch (k) {\n          l = k;\n        }\n        !l || l instanceof Error || J((c || \"React class\") + \": type specification of \" + d + \" `\" + f + \"` is invalid; the type checker function must return `null` or an `Error` but returned a \" + typeof l + \". You may have forgotten to pass an argument to the type checker creator (arrayOf, instanceOf, objectOf, oneOf, oneOfType, and shape all require an argument).\");\n        if (l instanceof Error && !(l.message in K)) {\n          K[l.message] = !0;\n          var A = e ? e() : \"\";\n          J(\"Failed \" + d + \" type: \" + l.message + (null != A ? A : \"\"));\n        }\n      }\n    }\n  }\n  function E() {\n    return null;\n  }\n  function sa(a, b) {\n    if (null === b) {\n      return null;\n    }\n    var d;\n    if (0 === a.length) {\n      return a = new Date(0), a.setUTCFullYear(b), a;\n    }\n    if (d = ta.exec(a)) {\n      a = new Date(0);\n      var c = parseInt(d[1], 10) - 1;\n      a.setUTCFullYear(b, c);\n      return a;\n    }\n    return (d = ua.exec(a)) ? (a = new Date(0), d = parseInt(d[1], 10), a.setUTCFullYear(b, 0, d), a) : (d = va.exec(a)) ? (a = new Date(0), c = parseInt(d[1], 10) - 1, d = parseInt(d[2], 10), a.setUTCFullYear(b, c, d), a) : (d = wa.exec(a)) ? (a = parseInt(d[1], 10) - 1, Q(b, a)) : (d = xa.exec(a)) ? (a = parseInt(d[1], 10) - 1, d = parseInt(d[2], 10) - 1, Q(b, a, d)) : null;\n  }\n  function ya(a) {\n    var b;\n    if (b = za.exec(a)) {\n      return a = parseFloat(b[1].replace(\",\", \".\")), a % 24 * 3600000;\n    }\n    if (b = Aa.exec(a)) {\n      a = parseInt(b[1], 10);\n      var d = parseFloat(b[2].replace(\",\", \".\"));\n      return a % 24 * 3600000 + 60000 * d;\n    }\n    return (b = Ba.exec(a)) ? (a = parseInt(b[1], 10), d = parseInt(b[2], 10), b = parseFloat(b[3].replace(\",\", \".\")), a % 24 * 3600000 + 60000 * d + 1000 * b) : null;\n  }\n  function Ca(a) {\n    var b;\n    return (b = Da.exec(a)) ? 0 : (b = Ea.exec(a)) ? (a = 60 * parseInt(b[2], 10), \"+\" === b[1] ? -a : a) : (b = Fa.exec(a)) ? (a = 60 * parseInt(b[2], 10) + parseInt(b[3], 10), \"+\" === b[1] ? -a : a) : 0;\n  }\n  function Q(a, b, d) {\n    b = b || 0;\n    d = d || 0;\n    var c = new Date(0);\n    c.setUTCFullYear(a, 0, 4);\n    a = c.getUTCDay() || 7;\n    b = 7 * b + d + 1 - a;\n    c.setUTCDate(c.getUTCDate() + b);\n    return c;\n  }\n  function Ga(a) {\n    var b = a % 100;\n    if (20 < b || 10 > b) {\n      switch(b % 10) {\n        case 1:\n          return a + \"st\";\n        case 2:\n          return a + \"nd\";\n        case 3:\n          return a + \"rd\";\n      }\n    }\n    return a + \"th\";\n  }\n  function Ha(a, b, d) {\n    var c = a.match(d), e = c.length;\n    for (a = 0; a < e; a++) {\n      d = b[c[a]] || L[c[a]], c[a] = d ? d : Ia(c[a]);\n    }\n    return function(a) {\n      for (var b = \"\", d = 0; d < e; d++) {\n        b = c[d] instanceof Function ? b + c[d](a, L) : b + c[d];\n      }\n      return b;\n    };\n  }\n  function Ia(a) {\n    return a.match(/\\[[\\s\\S]/) ? a.replace(/^\\[|]$/g, \"\") : a.replace(/\\\\/g, \"\");\n  }\n  function R(a, b) {\n    b = b || \"\";\n    var d = Math.abs(a), c = d % 60;\n    return (0 < a ? \"-\" : \"+\") + n(Math.floor(d / 60), 2) + b + n(c, 2);\n  }\n  function n(a, b) {\n    for (a = Math.abs(a).toString(); a.length < b;) {\n      a = \"0\" + a;\n    }\n    return a;\n  }\n  function M(a) {\n    a = String(a).split(\"\");\n    for (var b = []; a.length;) {\n      b.unshift(a.splice(-3).join(\"\"));\n    }\n    return b.join(\",\");\n  }\n  function Ja(a, b) {\n    void 0 === b && (b = 1);\n    return (100 * a).toPrecision(b + 2);\n  }\n  function S(a) {\n    return a && a.map(function(a, d) {\n      return u.createElement(a.tag, y({key:d}, a.attr), S(a.child));\n    });\n  }\n  function T(a) {\n    return function(b) {\n      return u.createElement(Ka, y({attr:y({}, a.attr)}, b), S(a.child));\n    };\n  }\n  function Ka(a) {\n    var b = function(b) {\n      var d = a.size || b.size || \"1em\";\n      if (b.className) {\n        var c = b.className;\n      }\n      a.className && (c = (c ? c + \" \" : \"\") + a.className);\n      var m = a.attr, g = a.title, l = [\"attr\", \"title\"], A = {}, k;\n      for (k in a) {\n        Object.prototype.hasOwnProperty.call(a, k) && 0 > l.indexOf(k) && (A[k] = a[k]);\n      }\n      if (null != a && \"function\" === typeof Object.getOwnPropertySymbols) {\n        var h = 0;\n        for (k = Object.getOwnPropertySymbols(a); h < k.length; h++) {\n          0 > l.indexOf(k[h]) && (A[k[h]] = a[k[h]]);\n        }\n      }\n      return u.createElement(\"svg\", y({stroke:\"currentColor\", fill:\"currentColor\", strokeWidth:\"0\"}, b.attr, m, A, {className:c, style:y({color:a.color || b.color}, b.style, a.style), height:d, width:d, xmlns:\"http://www.w3.org/2000/svg\"}), g && u.createElement(\"title\", null, g), a.children);\n    };\n    return void 0 !== U ? u.createElement(U.Consumer, null, function(a) {\n      return b(a);\n    }) : b(V);\n  }\n  function W(a, b) {\n    var d = b.css;\n    var f = [\"css\"];\n    if (null == b) {\n      b = {};\n    } else {\n      var e = {}, m = Object.keys(b), g;\n      for (g = 0; g < m.length; g++) {\n        var l = m[g];\n        0 <= f.indexOf(l) || (e[l] = b[l]);\n      }\n      b = e;\n    }\n    return c.jsx(a, C({css:C({}, d, {verticalAlign:\"text-bottom\"})}, b));\n  }\n  function La(a) {\n    return W(X, a);\n  }\n  function Ma(a) {\n    return W(Y, a);\n  }\n  function Z() {\n    var a = qa([\"\\n  html {\\n    box-sizing: border-box;\\n  }\\n  *,\\n  *:before,\\n  *:after {\\n    box-sizing: inherit;\\n  }\\n\\n  html,\\n  body,\\n  #root {\\n    height: 100%;\\n    margin: 0;\\n  }\\n\\n  body {\\n    \", \"\\n    font-size: 16px;\\n    line-height: 1.5;\\n    background: white;\\n    color: black;\\n  }\\n\\n  code {\\n    \", \"\\n  }\\n\\n  dd,\\n  ul {\\n    margin-left: 0;\\n    padding-left: 25px;\\n  }\\n\\n  #root {\\n    display: flex;\\n    flex-direction: column;\\n  }\\n\"]);\n    Z = function() {\n      return a;\n    };\n    return a;\n  }\n  function aa(a) {\n    return c.jsx(\"div\", {css:{textAlign:\"center\", flex:\"1\"}}, a.children);\n  }\n  function ba(a) {\n    return c.jsx(\"img\", C({}, a, {css:{maxWidth:\"90%\"}}));\n  }\n  function Na(a) {\n    a = a.data.totals;\n    var b = v(a.since), d = v(a.until);\n    return c.jsx(\"p\", null, \"From \", c.jsx(\"strong\", null, ca(b, \"MMM D\")), \" to\", \" \", c.jsx(\"strong\", null, ca(d, \"MMM D\")), \" unpkg served\", \" \", c.jsx(\"strong\", null, M(a.requests.all)), \" requests and a total of \", c.jsx(\"strong\", null, da(a.bandwidth.all)), \" of data to\", \" \", c.jsx(\"strong\", null, M(a.uniques.all)), \" unique visitors,\", \" \", c.jsx(\"strong\", null, Ja(a.requests.cached / a.requests.all, 2), \"%\"), \" \", \"of which were served from the cache.\");\n  }\n  function ea() {\n    var a = u.useState(\"object\" === typeof window && window.localStorage && window.localStorage.savedStats ? JSON.parse(window.localStorage.savedStats) : null)[0], b = !(!a || a.error);\n    return c.jsx(u.Fragment, null, c.jsx(\"div\", {css:{maxWidth:740, margin:\"0 auto\", padding:\"0 20px\"}}, c.jsx(c.Global, {styles:Oa}), c.jsx(\"header\", null, c.jsx(\"h1\", {css:{textTransform:\"uppercase\", textAlign:\"center\", fontSize:\"5em\"}}, \"unpkg\"), c.jsx(\"p\", null, \"unpkg is a fast, global content delivery network for everything on\", \" \", c.jsx(\"a\", {href:\"https://www.npmjs.com/\", css:h}, \"npm\"), \". Use it to quickly and easily load any file from any package using a URL like:\"), c.jsx(\"div\", {css:{textAlign:\"center\", \n    backgroundColor:\"#eee\", margin:\"2em 0\", padding:\"5px 0\"}}, \"unpkg.com/:package@:version/:file\"), b && c.jsx(Na, {data:a})), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"examples\"}, \"Examples\"), c.jsx(\"p\", null, \"Using a fixed version:\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, c.jsx(\"a\", {title:\"react.production.min.js\", href:\"/react@16.7.0/umd/react.production.min.js\", css:h}, \"unpkg.com/react@16.7.0/umd/react.production.min.js\")), c.jsx(\"li\", null, c.jsx(\"a\", {title:\"react-dom.production.min.js\", href:\"/react-dom@16.7.0/umd/react-dom.production.min.js\", \n    css:h}, \"unpkg.com/react-dom@16.7.0/umd/react-dom.production.min.js\"))), c.jsx(\"p\", null, \"You may also use a\", \" \", c.jsx(\"a\", {title:\"semver\", href:\"https://docs.npmjs.com/misc/semver\", css:h}, \"semver range\"), \" \", \"or a\", \" \", c.jsx(\"a\", {title:\"tags\", href:\"https://docs.npmjs.com/cli/dist-tag\", css:h}, \"tag\"), \" \", \"instead of a fixed version number, or omit the version/tag entirely to use the \", c.jsx(\"code\", null, \"latest\"), \" tag.\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, c.jsx(\"a\", {title:\"react.production.min.js\", \n    href:\"/react@^16/umd/react.production.min.js\", css:h}, \"unpkg.com/react@^16/umd/react.production.min.js\")), c.jsx(\"li\", null, c.jsx(\"a\", {title:\"react.production.min.js\", href:\"/react/umd/react.production.min.js\", css:h}, \"unpkg.com/react/umd/react.production.min.js\"))), c.jsx(\"p\", null, \"If you omit the file path (i.e. use a \\u201cbare\\u201d URL), unpkg will serve the file specified by the \", c.jsx(\"code\", null, \"unpkg\"), \" field in\", \" \", c.jsx(\"code\", null, \"package.json\"), \", or fall back to \", \n    c.jsx(\"code\", null, \"main\"), \".\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, c.jsx(\"a\", {title:\"jQuery\", href:\"/jquery\", css:h}, \"unpkg.com/jquery\")), c.jsx(\"li\", null, c.jsx(\"a\", {title:\"Three.js\", href:\"/three\", css:h}, \"unpkg.com/three\"))), c.jsx(\"p\", null, \"Append a \", c.jsx(\"code\", null, \"/\"), \" at the end of a URL to view a listing of all the files in a package.\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, c.jsx(\"a\", {title:\"Index of the react package\", href:\"/react/\", css:h}, \"unpkg.com/react/\")), \n    c.jsx(\"li\", null, c.jsx(\"a\", {title:\"Index of the react-router package\", href:\"/react-router/\", css:h}, \"unpkg.com/react-router/\"))), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"query-params\"}, \"Query Parameters\"), c.jsx(\"dl\", null, c.jsx(\"dt\", null, c.jsx(\"code\", null, \"?meta\")), c.jsx(\"dd\", null, \"Return metadata about any file in a package as JSON (e.g.\", c.jsx(\"code\", null, \"/any/file?meta\"), \")\"), c.jsx(\"dt\", null, c.jsx(\"code\", null, \"?module\")), c.jsx(\"dd\", null, \"Expands all\", \" \", c.jsx(\"a\", \n    {title:\"bare import specifiers\", href:\"https://html.spec.whatwg.org/multipage/webappapis.html#resolve-a-module-specifier\", css:h}, \"\\u201cbare\\u201d \", c.jsx(\"code\", null, \"import\"), \" specifiers\"), \" \", \"in JavaScript modules to unpkg URLs. This feature is\", \" \", c.jsx(\"em\", null, \"very experimental\"))), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"cache-behavior\"}, \"Cache Behavior\"), c.jsx(\"p\", null, \"The CDN caches files based on their permanent URL, which includes the npm package version. This works because npm does not allow package authors to overwrite a package that has already been published with a different one at the same version number.\"), \n    c.jsx(\"p\", null, \"Browsers are instructed (via the \", c.jsx(\"code\", null, \"Cache-Control\"), \" header) to cache assets indefinitely (1 year).\"), c.jsx(\"p\", null, \"URLs that do not specify a package version number redirect to one that does. This is the \", c.jsx(\"code\", null, \"latest\"), \" version when no version is specified, or the \", c.jsx(\"code\", null, \"maxSatisfying\"), \" version when a\", \" \", c.jsx(\"a\", {title:\"semver\", href:\"https://github.com/npm/node-semver\", css:h}, \"semver version\"), \" \", \n    \"is given. Redirects are cached for 10 minutes at the CDN, 1 minute in browsers.\"), c.jsx(\"p\", null, \"If you want users to be able to use the latest version when you cut a new release, the best policy is to put the version number in the URL directly in your installation instructions. This will also load more quickly because we won't have to resolve the latest version and redirect them.\"), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"workflow\"}, \"Workflow\"), c.jsx(\"p\", null, \"For npm package authors, unpkg relieves the burden of publishing your code to a CDN in addition to the npm registry. All you need to do is include your\", \n    \" \", c.jsx(\"a\", {title:\"UMD\", href:\"https://github.com/umdjs/umd\", css:h}, \"UMD\"), \" \", \"build in your npm package (not your repo, that's different!).\"), c.jsx(\"p\", null, \"You can do this easily using the following setup:\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, \"Add the \", c.jsx(\"code\", null, \"umd\"), \" (or \", c.jsx(\"code\", null, \"dist\"), \") directory to your\", \" \", c.jsx(\"code\", null, \".gitignore\"), \" file\"), c.jsx(\"li\", null, \"Add the \", c.jsx(\"code\", null, \"umd\"), \" directory to your\", \" \", \n    c.jsx(\"a\", {title:\"package.json files array\", href:\"https://docs.npmjs.com/files/package.json#files\", css:h}, \"files array\"), \" \", \"in \", c.jsx(\"code\", null, \"package.json\")), c.jsx(\"li\", null, \"Use a build script to generate your UMD build in the\", \" \", c.jsx(\"code\", null, \"umd\"), \" directory when you publish\")), c.jsx(\"p\", null, \"That's it! Now when you \", c.jsx(\"code\", null, \"npm publish\"), \" you'll have a version available on unpkg as well.\"), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"about\"}, \n    \"About\"), c.jsx(\"p\", null, \"unpkg is an\", \" \", c.jsx(\"a\", {title:\"unpkg on GitHub\", href:\"https://github.com/unpkg\", css:h}, \"open source\"), \" \", \"project built and maintained by\", \" \", c.jsx(\"a\", {title:\"mjackson on Twitter\", href:\"https://twitter.com/mjackson\", css:h}, \"Michael Jackson\"), \". unpkg is not affiliated with or supported by npm, Inc. in any way. Please do not contact npm for help with unpkg. Instead, please reach out to\", \" \", c.jsx(\"a\", {title:\"unpkg on Twitter\", href:\"https://twitter.com/unpkg\", \n    css:h}, \"@unpkg\"), \" \", \"with any questions or concerns.\"), c.jsx(\"p\", null, \"The unpkg CDN is powered by\", \" \", c.jsx(\"a\", {title:\"Cloudflare\", href:\"https://www.cloudflare.com\", css:h}, \"Cloudflare\"), \", one of the world's largest and fastest cloud network platforms.\", \" \", b && c.jsx(\"span\", null, \"In the past month, Cloudflare served over\", \" \", c.jsx(\"strong\", null, da(a.totals.bandwidth.all)), \" to\", \" \", c.jsx(\"strong\", null, M(a.totals.uniques.all)), \" unique unpkg users all over the world.\")), \n    c.jsx(\"div\", {css:{margin:\"4em 0\", display:\"flex\", justifyContent:\"center\"}}, c.jsx(aa, null, c.jsx(\"a\", {title:\"Cloudflare\", href:\"https://www.cloudflare.com\"}, c.jsx(ba, {src:\"/_client/46bc46bc8accec6a.png\", height:\"100\"})))), c.jsx(\"p\", null, \"The origin servers for unpkg are powered by\", \" \", c.jsx(\"a\", {title:\"Google Cloud\", href:\"https://cloud.google.com/\", css:h}, \"Google Cloud\"), \" \", \"and made possible by a generous donation from the\", \" \", c.jsx(\"a\", {title:\"Angular\", href:\"https://angular.io\", \n    css:h}, \"Angular web framework\"), \", one of the world's most popular libraries for building incredible user experiences on both desktop and mobile.\"), c.jsx(\"div\", {css:{margin:\"4em 0 0\", display:\"flex\", justifyContent:\"center\"}}, c.jsx(aa, null, c.jsx(\"a\", {title:\"Angular\", href:\"https://angular.io\"}, c.jsx(ba, {src:\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPoAAAD6CAMAAAC/MqoPAAAAz1BMVEUAAADUBy/DDi7dAzDdAzDdAzDdAzDDDi7DDi7DDi7dAzDdAzDdAzDDDi7DDi7DDi7dAzDdAzDdAzDDDi7DDi7DDi7dAzDdAzDDDi7DDi7dAzDdAzDDDi7DDi7dAzDDDi7fEz3HHTvugZjhh5f97/L78PLqYn7////aaHz74OX44eXmQmTSSmL3wMvww8vhI0rLLEjyobHppbHdAzDDDi7jMlfOO1XoUnHWWW/50Nj00tjscYvdd4nwkaTllqT0sL7stL7hRGPXBjDWBi/FDS4+JsiBAAAARXRSTlMAMDAwj9///9+PIHDPz3AgEGC/v2AQUK+vUJ/v75+AgP////////////////////////9AQP//////////////////r6+TKVt1AAAH7ElEQVR4AezUtaHDUBTA0I9mZtx/zHDMWOY+nQ3U6AsAAAAAAAAAAAAA8Em+f9Ts/v3713TDVK7esh3tRr9xPV+d7iCMtCf9KU5SJcKzXOvonaIU313VmjZK7zRtKXtsY/qI1OlZ9rN7Jb2rlza9IHS0JfoSV9D0wlxboa8oElljO5HeTU/C2E6kC5heN7Yz6QKm143tTLqA6QXrYzub/pxeKmFsV2buQllxZQ3DcJZ1jwuMS7AYGmx84Jy97/+exjNGWLv+zvst+O7gKfnrha6Kna4/ethhq9wUvdIf99G7EV8407xp1zpHevTuff8JrqN//3H/8PgPG0/njx5/2Hg6f/T4w8bTj/bo3ahKNWjdXpC76ty7B/9vMXz9Qbic+0cTOGz2JanRChw94LC55svyvPDNd5VH7+zrQQc2zPORJ/bi5ekhD5t94/zLJoAcOHrEYTNs+pU+M/CAowccNmBl/m1zD646evxhQ7f4Tl96cvzRW1WHjVs3/7HfswY6emv+v0Vy/Yo+oOnUP5rVT1F8SUVPeTnz8/bMaZZV8ipr+J1GDSeiD3/RRyJ61HTW+2bImWoTifxFY3pLQp/+Tp9J6G2eDuZMtflx0mMFffEnfamgd0g6nzNk1vD0R8qcUWZN86BdKXNGmTXr5jknzBlp1gC/4YQ5I82aqPkuZDkjzZprAL0lyxlp1rQB+mNY/iqv3WuY/gSgx6qc0WZNB6DflDWstGbvAPSVKGfEWbM+Ono32UdPezAdmCZn1FkTERPlDJ81PP0WKH+TX7K3oPw2Qm8pckadNW2Efi7IGXnWXEfosSBn5FnTQej3+ZzRZ80DhL7ic0afNWuEfsbnjD5rTiNkfM7osyZi9pzOGX3WvIDoLTpn9FnTJul8zvBZw9NjOmf0WdNh6XzOLJZs1vD0R6qcGU9UWfMUoq9EOfPO+feirFlD9HuinMmcL4CsYZ9e+Kb5sGtMus730nxnH4mioXYhyZmNc95vJVlzDaO3JA1bfqXPJTXbxuiPFTkzdV/pfqbImicYPVa8ML75Tn+reHvsYPSbgpwZuu90PxJkzR2MvhLkTL+iDwRZsz4a+qZG163ovXx3W4AOjc+ZhavofslnTcQNz5l8/Is+ybms4em36Jx5537R/Xs6a26D9BadM9nv9ILOmjZIfwbnTNL9nd5L4ax5CdJjOGcW7ne6X8JZ0wHp9+HHpvJP+hx+hHoA0ldszkzdn3Q/Y7NmDdLP2JzJ/qYXbNacRuDQnBnufrVghGZNRA7Nmf4ufUBlDU9vkY9N5S59Tj5CtVk6mDMLt0v3SyhreHoMPjaN6+gT8BGqw9K5nBm6OrofAVmD0YEHmP/VeLJ6epHv7v/804t9Kyxnkm49vZdiWbNG6Tewhl24erpfYjV7N0JH5Uxe7qPPcyprInYXzAtjle+79PqQH/BPL+a1oJzJ9tMLKGvaMP0xkzNDt5/uR0zWPIHpsZ3+ri7f6+n7Q/69nd6h6UjO5OVl9HkOZA1PXyE5s3CX0f0SyZo1TSdyJh9fTp/kQNbg9IjImaG7nO5HRNZE9Iicyf6LXgBZw9NvWXMG2wB9etE3zZCjj/RFQz7AZDm4wvj0Qi825gw4W9Z0cPp9W86gm9ieXuitbDmDzpQ1a5x+ZsoZeHP+6cUye85ws2RNdEh6N8fXOyi9pc8ZImvaB6UnPD09KD3W5wyRNR09nW9YpmYV9Ed8zlg24Z9e8KaZaugzumgMu6HPGSJr7kaC6XOGyJpIsQs+Z/isuSaht4Jzpj+u3z+TPRsEZ01bQn8cmjOJ27N/9wrS0Kx5IqHHoTmzsdO3oVnT0dMtOVPa6XN71ijpq8CcmTo73c8Cs2atpxtyJguhF/asEdKjsJxJXAjdp2FZE2kWljObMPrWnjVC+q2gnCnD6HN71tBPL4am6RuOXEU3HroBXzTIA0xiOHIV3XjoUvLpxbA4IGcSF0r3aUDWdET0+wE5swmnbwOy5oGIvgr42FAZTp8HfK5oLaKf2XNm6sLpfmbPmtNINPvHhrIm9ML+uaJINXPOJK4J3afmrJHRW8aGzTfN6NvcWLNtHd362FQ2o8+tj1A6emz8duLUNaP7mfErjJ0D0DPDkTPQC+MjlI7+yJYziWtK96kta57K6Ctbzmya07e2rFnL6Ddsj01lc/rc9gh1N5LNlDNT15zuZ6asiXS7sDw2ZQS9sDxCXRPSW4acSRxB96kha9pC+mNDzmwY+taQNU+E9NjwKeiSoc8NH5fuXDW97NctcwzdF4O6za+avvrcnl3Y6A5DQRS+PzMzF5FUMO/139KSeJmONdLe08EIvsR29+e9Of3n1TkdyXt6kI1OvtPP00CbX12n3zZBNzw6Tr/MokTV0m36qo5SbTtO0/uHYAO8k79ulHfy143yTv66Ud6J183VO/G6uXonWDfeu1P56WdWN9478brhtZYlp6+a4VTVKTW9X4dbi1OJ6ed1/DwD78Tr5uqdeN1cvROvm6t34nVz9U68bq7eidfN1Tvxurl6J0A3h6rxb0yfELrxLTo/nd5ndDPwTj66AeOP359+YYfzDZffm74CWTfwTrxurt6J183VO/G6uXonXjdX78Tr5uqdeN1cvROvm6t3ctYNGN9+ffoAGG7XcPdy+t5aN+BxWvxjsat3InTz79E7PekWQPbeyV83qOG//7PI/mhZlmVZlmVZlmVZlmXZPZmSvHpA7pEOAAAAAElFTkSuQmCC\", \n    width:\"200\"}))))), c.jsx(\"footer\", {css:{marginTop:\"5rem\", background:\"black\", color:\"#aaa\"}}, c.jsx(\"div\", {css:{maxWidth:740, padding:\"10px 20px\", margin:\"0 auto\", display:\"flex\", flexDirection:\"row\", alignItems:\"center\", justifyContent:\"space-between\"}}, c.jsx(\"p\", null, \"\\u00a9 \", (new Date).getFullYear(), \" UNPKG\"), c.jsx(\"p\", {css:{fontSize:\"1.5rem\"}}, c.jsx(\"a\", {title:\"Twitter\", href:\"https://twitter.com/unpkg\", css:{color:\"#aaa\", display:\"inline-block\", \":hover\":{color:\"white\"}}}, c.jsx(La, \n    null)), c.jsx(\"a\", {title:\"GitHub\", href:\"https://github.com/mjackson/unpkg\", css:{color:\"#aaa\", display:\"inline-block\", marginLeft:\"1rem\", \":hover\":{color:\"white\"}}}, c.jsx(Ma, null))))));\n  }\n  var Pa = \"default\" in u ? u[\"default\"] : u;\n  z = z && z.hasOwnProperty(\"default\") ? z[\"default\"] : z;\n  var G = D(function(a, b) {\n    function d(a) {\n      if (\"object\" === typeof a && null !== a) {\n        var b = a.$$typeof;\n        switch(b) {\n          case e:\n            switch(a = a.type, a) {\n              case r:\n              case p:\n              case g:\n              case h:\n              case l:\n              case q:\n                return a;\n              default:\n                switch(a = a && a.$$typeof, a) {\n                  case n:\n                  case t:\n                  case k:\n                    return a;\n                  default:\n                    return b;\n                }\n            }case w:\n          case x:\n          case m:\n            return b;\n        }\n      }\n    }\n    function c(a) {\n      return d(a) === p;\n    }\n    Object.defineProperty(b, \"__esModule\", {value:!0});\n    var e = (a = \"function\" === typeof Symbol && Symbol.for) ? Symbol.for(\"react.element\") : 60103, m = a ? Symbol.for(\"react.portal\") : 60106, g = a ? Symbol.for(\"react.fragment\") : 60107, l = a ? Symbol.for(\"react.strict_mode\") : 60108, h = a ? Symbol.for(\"react.profiler\") : 60114, k = a ? Symbol.for(\"react.provider\") : 60109, n = a ? Symbol.for(\"react.context\") : 60110, r = a ? Symbol.for(\"react.async_mode\") : 60111, p = a ? Symbol.for(\"react.concurrent_mode\") : 60111, t = a ? Symbol.for(\"react.forward_ref\") : \n    60112, q = a ? Symbol.for(\"react.suspense\") : 60113, x = a ? Symbol.for(\"react.memo\") : 60115, w = a ? Symbol.for(\"react.lazy\") : 60116;\n    b.typeOf = d;\n    b.AsyncMode = r;\n    b.ConcurrentMode = p;\n    b.ContextConsumer = n;\n    b.ContextProvider = k;\n    b.Element = e;\n    b.ForwardRef = t;\n    b.Fragment = g;\n    b.Lazy = w;\n    b.Memo = x;\n    b.Portal = m;\n    b.Profiler = h;\n    b.StrictMode = l;\n    b.Suspense = q;\n    b.isValidElementType = function(a) {\n      return \"string\" === typeof a || \"function\" === typeof a || a === g || a === p || a === h || a === l || a === q || \"object\" === typeof a && null !== a && (a.$$typeof === w || a.$$typeof === x || a.$$typeof === k || a.$$typeof === n || a.$$typeof === t);\n    };\n    b.isAsyncMode = function(a) {\n      return c(a) || d(a) === r;\n    };\n    b.isConcurrentMode = c;\n    b.isContextConsumer = function(a) {\n      return d(a) === n;\n    };\n    b.isContextProvider = function(a) {\n      return d(a) === k;\n    };\n    b.isElement = function(a) {\n      return \"object\" === typeof a && null !== a && a.$$typeof === e;\n    };\n    b.isForwardRef = function(a) {\n      return d(a) === t;\n    };\n    b.isFragment = function(a) {\n      return d(a) === g;\n    };\n    b.isLazy = function(a) {\n      return d(a) === w;\n    };\n    b.isMemo = function(a) {\n      return d(a) === x;\n    };\n    b.isPortal = function(a) {\n      return d(a) === m;\n    };\n    b.isProfiler = function(a) {\n      return d(a) === h;\n    };\n    b.isStrictMode = function(a) {\n      return d(a) === l;\n    };\n    b.isSuspense = function(a) {\n      return d(a) === q;\n    };\n  });\n  P(G);\n  var ha = D(function(a, b) {\n    (function() {\n      function a(a) {\n        if (\"object\" === typeof a && null !== a) {\n          var b = a.$$typeof;\n          switch(b) {\n            case m:\n              switch(a = a.type, a) {\n                case p:\n                case t:\n                case l:\n                case k:\n                case h:\n                case x:\n                  return a;\n                default:\n                  switch(a = a && a.$$typeof, a) {\n                    case r:\n                    case q:\n                    case n:\n                      return a;\n                    default:\n                      return b;\n                  }\n              }case F:\n            case w:\n            case g:\n              return b;\n          }\n        }\n      }\n      function c(b) {\n        return a(b) === t;\n      }\n      Object.defineProperty(b, \"__esModule\", {value:!0});\n      var e = \"function\" === typeof Symbol && Symbol.for, m = e ? Symbol.for(\"react.element\") : 60103, g = e ? Symbol.for(\"react.portal\") : 60106, l = e ? Symbol.for(\"react.fragment\") : 60107, h = e ? Symbol.for(\"react.strict_mode\") : 60108, k = e ? Symbol.for(\"react.profiler\") : 60114, n = e ? Symbol.for(\"react.provider\") : 60109, r = e ? Symbol.for(\"react.context\") : 60110, p = e ? Symbol.for(\"react.async_mode\") : 60111, t = e ? Symbol.for(\"react.concurrent_mode\") : 60111, q = e ? Symbol.for(\"react.forward_ref\") : \n      60112, x = e ? Symbol.for(\"react.suspense\") : 60113, w = e ? Symbol.for(\"react.memo\") : 60115, F = e ? Symbol.for(\"react.lazy\") : 60116;\n      e = function() {\n      };\n      var Qa = function(a) {\n        for (var b = arguments.length, c = Array(1 < b ? b - 1 : 0), d = 1; d < b; d++) {\n          c[d - 1] = arguments[d];\n        }\n        var p = 0;\n        b = \"Warning: \" + a.replace(/%s/g, function() {\n          return c[p++];\n        });\n        \"undefined\" !== typeof console && console.warn(b);\n        try {\n          throw Error(b);\n        } catch (fb) {\n        }\n      }, Ra = e = function(a, b) {\n        if (void 0 === b) {\n          throw Error(\"`lowPriorityWarning(condition, format, ...args)` requires a warning message argument\");\n        }\n        if (!a) {\n          for (var c = arguments.length, d = Array(2 < c ? c - 2 : 0), p = 2; p < c; p++) {\n            d[p - 2] = arguments[p];\n          }\n          Qa.apply(void 0, [b].concat(d));\n        }\n      }, fa = !1;\n      b.typeOf = a;\n      b.AsyncMode = p;\n      b.ConcurrentMode = t;\n      b.ContextConsumer = r;\n      b.ContextProvider = n;\n      b.Element = m;\n      b.ForwardRef = q;\n      b.Fragment = l;\n      b.Lazy = F;\n      b.Memo = w;\n      b.Portal = g;\n      b.Profiler = k;\n      b.StrictMode = h;\n      b.Suspense = x;\n      b.isValidElementType = function(a) {\n        return \"string\" === typeof a || \"function\" === typeof a || a === l || a === t || a === k || a === h || a === x || \"object\" === typeof a && null !== a && (a.$$typeof === F || a.$$typeof === w || a.$$typeof === n || a.$$typeof === r || a.$$typeof === q);\n      };\n      b.isAsyncMode = function(b) {\n        fa || (fa = !0, Ra(!1, \"The ReactIs.isAsyncMode() alias has been deprecated, and will be removed in React 17+. Update your code to use ReactIs.isConcurrentMode() instead. It has the exact same API.\"));\n        return c(b) || a(b) === p;\n      };\n      b.isConcurrentMode = c;\n      b.isContextConsumer = function(b) {\n        return a(b) === r;\n      };\n      b.isContextProvider = function(b) {\n        return a(b) === n;\n      };\n      b.isElement = function(a) {\n        return \"object\" === typeof a && null !== a && a.$$typeof === m;\n      };\n      b.isForwardRef = function(b) {\n        return a(b) === q;\n      };\n      b.isFragment = function(b) {\n        return a(b) === l;\n      };\n      b.isLazy = function(b) {\n        return a(b) === F;\n      };\n      b.isMemo = function(b) {\n        return a(b) === w;\n      };\n      b.isPortal = function(b) {\n        return a(b) === g;\n      };\n      b.isProfiler = function(b) {\n        return a(b) === k;\n      };\n      b.isStrictMode = function(b) {\n        return a(b) === h;\n      };\n      b.isSuspense = function(b) {\n        return a(b) === x;\n      };\n    })();\n  });\n  P(ha);\n  var ia = D(function(a) {\n    a.exports = ha;\n  }), ja = Object.getOwnPropertySymbols, Sa = Object.prototype.hasOwnProperty, Ta = Object.prototype.propertyIsEnumerable, Ua = function() {\n    try {\n      if (!Object.assign) {\n        return !1;\n      }\n      var a = new String(\"abc\");\n      a[5] = \"de\";\n      if (\"5\" === Object.getOwnPropertyNames(a)[0]) {\n        return !1;\n      }\n      var b = {};\n      for (a = 0; 10 > a; a++) {\n        b[\"_\" + String.fromCharCode(a)] = a;\n      }\n      if (\"0123456789\" !== Object.getOwnPropertyNames(b).map(function(a) {\n        return b[a];\n      }).join(\"\")) {\n        return !1;\n      }\n      var c = {};\n      \"abcdefghijklmnopqrst\".split(\"\").forEach(function(a) {\n        c[a] = a;\n      });\n      return \"abcdefghijklmnopqrst\" !== Object.keys(Object.assign({}, c)).join(\"\") ? !1 : !0;\n    } catch (f) {\n      return !1;\n    }\n  }() ? Object.assign : function(a, b) {\n    if (null === a || void 0 === a) {\n      throw new TypeError(\"Object.assign cannot be called with null or undefined\");\n    }\n    var c = Object(a);\n    for (var f, e = 1; e < arguments.length; e++) {\n      var m = Object(arguments[e]);\n      for (var g in m) {\n        Sa.call(m, g) && (c[g] = m[g]);\n      }\n      if (ja) {\n        f = ja(m);\n        for (var l = 0; l < f.length; l++) {\n          Ta.call(m, f[l]) && (c[f[l]] = m[f[l]]);\n        }\n      }\n    }\n    return c;\n  }, J = function() {\n  }, K = {}, ra = Function.call.bind(Object.prototype.hasOwnProperty);\n  J = function(a) {\n    a = \"Warning: \" + a;\n    \"undefined\" !== typeof console && console.error(a);\n    try {\n      throw Error(a);\n    } catch (b) {\n    }\n  };\n  I.resetWarningCache = function() {\n    K = {};\n  };\n  var Va = Function.call.bind(Object.prototype.hasOwnProperty), B = function() {\n  };\n  B = function(a) {\n    a = \"Warning: \" + a;\n    \"undefined\" !== typeof console && console.error(a);\n    try {\n      throw Error(a);\n    } catch (b) {\n    }\n  };\n  var Wa = function(a, b) {\n    function c(a, b) {\n      return a === b ? 0 !== a || 1 / a === 1 / b : a !== a && b !== b;\n    }\n    function f(a) {\n      this.message = a;\n      this.stack = \"\";\n    }\n    function e(a) {\n      function c(c, t, q, e, l, k, g) {\n        e = e || \"<<anonymous>>\";\n        k = k || q;\n        if (\"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\" !== g) {\n          if (b) {\n            throw c = Error(\"Calling PropTypes validators directly is not supported by the `prop-types` package. Use `PropTypes.checkPropTypes()` to call them. Read more at http://fb.me/use-check-prop-types\"), c.name = \"Invariant Violation\", c;\n          }\n          \"undefined\" !== typeof console && (g = e + \":\" + q, !d[g] && 3 > p && (B(\"You are manually calling a React.PropTypes validation function for the `\" + k + \"` prop on `\" + e + \"`. This is deprecated and will throw in the standalone `prop-types` package. You may be seeing this warning due to a third-party PropTypes library. See https://fb.me/react-warning-dont-call-proptypes for details.\"), d[g] = !0, p++));\n        }\n        return null == t[q] ? c ? null === t[q] ? new f(\"The \" + l + \" `\" + k + \"` is marked as required \" + (\"in `\" + e + \"`, but its value is `null`.\")) : new f(\"The \" + l + \" `\" + k + \"` is marked as required in \" + (\"`\" + e + \"`, but its value is `undefined`.\")) : null : a(t, q, e, l, k);\n      }\n      var d = {}, p = 0, e = c.bind(null, !1);\n      e.isRequired = c.bind(null, !0);\n      return e;\n    }\n    function m(a) {\n      return e(function(b, c, d, p, e, k) {\n        b = b[c];\n        return l(b) !== a ? (b = h(b), new f(\"Invalid \" + p + \" `\" + e + \"` of type \" + (\"`\" + b + \"` supplied to `\" + d + \"`, expected \") + (\"`\" + a + \"`.\"))) : null;\n      });\n    }\n    function g(b) {\n      switch(typeof b) {\n        case \"number\":\n        case \"string\":\n        case \"undefined\":\n          return !0;\n        case \"boolean\":\n          return !b;\n        case \"object\":\n          if (Array.isArray(b)) {\n            return b.every(g);\n          }\n          if (null === b || a(b)) {\n            return !0;\n          }\n          var c = b && (n && b[n] || b[\"@@iterator\"]);\n          var d = \"function\" === typeof c ? c : void 0;\n          if (d) {\n            if (c = d.call(b), d !== b.entries) {\n              for (; !(b = c.next()).done;) {\n                if (!g(b.value)) {\n                  return !1;\n                }\n              }\n            } else {\n              for (; !(b = c.next()).done;) {\n                if ((b = b.value) && !g(b[1])) {\n                  return !1;\n                }\n              }\n            }\n          } else {\n            return !1;\n          }\n          return !0;\n        default:\n          return !1;\n      }\n    }\n    function l(a) {\n      var b = typeof a;\n      return Array.isArray(a) ? \"array\" : a instanceof RegExp ? \"object\" : \"symbol\" === b || a && (\"Symbol\" === a[\"@@toStringTag\"] || \"function\" === typeof Symbol && a instanceof Symbol) ? \"symbol\" : b;\n    }\n    function h(a) {\n      if (\"undefined\" === typeof a || null === a) {\n        return \"\" + a;\n      }\n      var b = l(a);\n      if (\"object\" === b) {\n        if (a instanceof Date) {\n          return \"date\";\n        }\n        if (a instanceof RegExp) {\n          return \"regexp\";\n        }\n      }\n      return b;\n    }\n    function k(a) {\n      a = h(a);\n      switch(a) {\n        case \"array\":\n        case \"object\":\n          return \"an \" + a;\n        case \"boolean\":\n        case \"date\":\n        case \"regexp\":\n          return \"a \" + a;\n        default:\n          return a;\n      }\n    }\n    var n = \"function\" === typeof Symbol && Symbol.iterator, r = {array:m(\"array\"), bool:m(\"boolean\"), func:m(\"function\"), number:m(\"number\"), object:m(\"object\"), string:m(\"string\"), symbol:m(\"symbol\"), any:e(E), arrayOf:function(a) {\n      return e(function(b, c, d, e, p) {\n        if (\"function\" !== typeof a) {\n          return new f(\"Property `\" + p + \"` of component `\" + d + \"` has invalid PropType notation inside arrayOf.\");\n        }\n        b = b[c];\n        if (!Array.isArray(b)) {\n          return b = l(b), new f(\"Invalid \" + e + \" `\" + p + \"` of type \" + (\"`\" + b + \"` supplied to `\" + d + \"`, expected an array.\"));\n        }\n        for (c = 0; c < b.length; c++) {\n          var q = a(b, c, d, e, p + \"[\" + c + \"]\", \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n          if (q instanceof Error) {\n            return q;\n          }\n        }\n        return null;\n      });\n    }, element:function() {\n      return e(function(b, c, d, e, k) {\n        b = b[c];\n        return a(b) ? null : (b = l(b), new f(\"Invalid \" + e + \" `\" + k + \"` of type \" + (\"`\" + b + \"` supplied to `\" + d + \"`, expected a single ReactElement.\")));\n      });\n    }(), elementType:function() {\n      return e(function(a, b, c, d, e) {\n        a = a[b];\n        return ia.isValidElementType(a) ? null : (a = l(a), new f(\"Invalid \" + d + \" `\" + e + \"` of type \" + (\"`\" + a + \"` supplied to `\" + c + \"`, expected a single ReactElement type.\")));\n      });\n    }(), instanceOf:function(a) {\n      return e(function(b, c, d, e, k) {\n        if (!(b[c] instanceof a)) {\n          var q = a.name || \"<<anonymous>>\";\n          b = b[c];\n          b = b.constructor && b.constructor.name ? b.constructor.name : \"<<anonymous>>\";\n          return new f(\"Invalid \" + e + \" `\" + k + \"` of type \" + (\"`\" + b + \"` supplied to `\" + d + \"`, expected \") + (\"instance of `\" + q + \"`.\"));\n        }\n        return null;\n      });\n    }, node:function() {\n      return e(function(a, b, c, d, e) {\n        return g(a[b]) ? null : new f(\"Invalid \" + d + \" `\" + e + \"` supplied to \" + (\"`\" + c + \"`, expected a ReactNode.\"));\n      });\n    }(), objectOf:function(a) {\n      return e(function(b, c, d, e, k) {\n        if (\"function\" !== typeof a) {\n          return new f(\"Property `\" + k + \"` of component `\" + d + \"` has invalid PropType notation inside objectOf.\");\n        }\n        b = b[c];\n        c = l(b);\n        if (\"object\" !== c) {\n          return new f(\"Invalid \" + e + \" `\" + k + \"` of type \" + (\"`\" + c + \"` supplied to `\" + d + \"`, expected an object.\"));\n        }\n        for (var g in b) {\n          if (Va(b, g) && (c = a(b, g, d, e, k + \".\" + g, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\"), c instanceof Error)) {\n            return c;\n          }\n        }\n        return null;\n      });\n    }, oneOf:function(a) {\n      return Array.isArray(a) ? e(function(b, d, e, k, g) {\n        b = b[d];\n        for (d = 0; d < a.length; d++) {\n          if (c(b, a[d])) {\n            return null;\n          }\n        }\n        d = JSON.stringify(a, function(a, b) {\n          return \"symbol\" === h(b) ? String(b) : b;\n        });\n        return new f(\"Invalid \" + k + \" `\" + g + \"` of value `\" + String(b) + \"` \" + (\"supplied to `\" + e + \"`, expected one of \" + d + \".\"));\n      }) : (1 < arguments.length ? B(\"Invalid arguments supplied to oneOf, expected an array, got \" + arguments.length + \" arguments. A common mistake is to write oneOf(x, y, z) instead of oneOf([x, y, z]).\") : B(\"Invalid argument supplied to oneOf, expected an array.\"), E);\n    }, oneOfType:function(a) {\n      if (!Array.isArray(a)) {\n        return B(\"Invalid argument supplied to oneOfType, expected an instance of array.\"), E;\n      }\n      for (var b = 0; b < a.length; b++) {\n        var c = a[b];\n        if (\"function\" !== typeof c) {\n          return B(\"Invalid argument supplied to oneOfType. Expected an array of check functions, but received \" + k(c) + \" at index \" + b + \".\"), E;\n        }\n      }\n      return e(function(b, c, d, e, k) {\n        for (var g = 0; g < a.length; g++) {\n          if (null == (0,a[g])(b, c, d, e, k, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n            return null;\n          }\n        }\n        return new f(\"Invalid \" + e + \" `\" + k + \"` supplied to \" + (\"`\" + d + \"`.\"));\n      });\n    }, shape:function(a) {\n      return e(function(b, c, d, e, k) {\n        b = b[c];\n        c = l(b);\n        if (\"object\" !== c) {\n          return new f(\"Invalid \" + e + \" `\" + k + \"` of type `\" + c + \"` \" + (\"supplied to `\" + d + \"`, expected `object`.\"));\n        }\n        for (var g in a) {\n          if (c = a[g]) {\n            if (c = c(b, g, d, e, k + \".\" + g, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n              return c;\n            }\n          }\n        }\n        return null;\n      });\n    }, exact:function(a) {\n      return e(function(b, c, d, e, k) {\n        var g = b[c], h = l(g);\n        if (\"object\" !== h) {\n          return new f(\"Invalid \" + e + \" `\" + k + \"` of type `\" + h + \"` \" + (\"supplied to `\" + d + \"`, expected `object`.\"));\n        }\n        h = Ua({}, b[c], a);\n        for (var m in h) {\n          h = a[m];\n          if (!h) {\n            return new f(\"Invalid \" + e + \" `\" + k + \"` key `\" + m + \"` supplied to `\" + d + \"`.\\nBad object: \" + JSON.stringify(b[c], null, \"  \") + \"\\nValid keys: \" + JSON.stringify(Object.keys(a), null, \"  \"));\n          }\n          if (h = h(g, m, d, e, k + \".\" + m, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n            return h;\n          }\n        }\n        return null;\n      });\n    }};\n    f.prototype = Error.prototype;\n    r.checkPropTypes = I;\n    r.resetWarningCache = I.resetWarningCache;\n    return r.PropTypes = r;\n  };\n  G = D(function(a) {\n    a.exports = Wa(ia.isElement, !0);\n  });\n  let ka = \"B kB MB GB TB PB EB ZB YB\".split(\" \"), la = (a, b) => {\n    let c = a;\n    \"string\" === typeof b ? c = a.toLocaleString(b) : !0 === b && (c = a.toLocaleString());\n    return c;\n  };\n  var da = (a, b) => {\n    if (!Number.isFinite(a)) {\n      throw new TypeError(`Expected a finite number, got ${typeof a}: ${a}`);\n    }\n    b = Object.assign({}, b);\n    if (b.signed && 0 === a) {\n      return \" 0 B\";\n    }\n    var c = 0 > a;\n    let f = c ? \"-\" : b.signed ? \"+\" : \"\";\n    c && (a = -a);\n    if (1 > a) {\n      return a = la(a, b.locale), f + a + \" B\";\n    }\n    c = Math.min(Math.floor(Math.log10(a) / 3), ka.length - 1);\n    a = Number((a / Math.pow(1000, c)).toPrecision(3));\n    a = la(a, b.locale);\n    return f + a + \" \" + ka[c];\n  }, N = function(a) {\n    var b = new Date(a.getTime());\n    a = b.getTimezoneOffset();\n    b.setSeconds(0, 0);\n    b = b.getTime() % 60000;\n    return 60000 * a + b;\n  }, Xa = /[T ]/, Ya = /:/, Za = /^(\\d{2})$/, $a = [/^([+-]\\d{2})$/, /^([+-]\\d{3})$/, /^([+-]\\d{4})$/], ab = /^(\\d{4})/, bb = [/^([+-]\\d{4})/, /^([+-]\\d{5})/, /^([+-]\\d{6})/], ta = /^-(\\d{2})$/, ua = /^-?(\\d{3})$/, va = /^-?(\\d{2})-?(\\d{2})$/, wa = /^-?W(\\d{2})$/, xa = /^-?W(\\d{2})-?(\\d{1})$/, za = /^(\\d{2}([.,]\\d*)?)$/, Aa = /^(\\d{2}):?(\\d{2}([.,]\\d*)?)$/, Ba = /^(\\d{2}):?(\\d{2}):?(\\d{2}([.,]\\d*)?)$/, cb = /([Z+-].*)$/, Da = /^(Z)$/, Ea = /^([+-])(\\d{2})$/, Fa = /^([+-])(\\d{2}):?(\\d{2})$/, v = function(a, \n  b) {\n    if (a instanceof Date) {\n      return new Date(a.getTime());\n    }\n    if (\"string\" !== typeof a) {\n      return new Date(a);\n    }\n    var c = (b || {}).additionalDigits;\n    c = null == c ? 2 : Number(c);\n    var f = a.split(Xa);\n    Ya.test(f[0]) ? (b = null, f = f[0]) : (b = f[0], f = f[1]);\n    if (f) {\n      var e = cb.exec(f);\n      if (e) {\n        var h = f.replace(e[1], \"\");\n        var g = e[1];\n      } else {\n        h = f;\n      }\n    }\n    f = $a[c];\n    c = bb[c];\n    (c = ab.exec(b) || c.exec(b)) ? (f = c[1], c = parseInt(f, 10), b = b.slice(f.length)) : (c = Za.exec(b) || f.exec(b)) ? (f = c[1], c = 100 * parseInt(f, 10), b = b.slice(f.length)) : (c = null, b = void 0);\n    return (b = sa(b, c)) ? (a = b.getTime(), b = 0, h && (b = ya(h)), g ? h = 60000 * Ca(g) : (c = a + b, g = new Date(c), h = N(g), c = new Date(c), c.setDate(g.getDate() + 1), g = N(c) - N(g), 0 < g && (h += g)), new Date(a + b + h)) : new Date(a);\n  }, ma = function(a) {\n    a = v(a);\n    a.setHours(0, 0, 0, 0);\n    return a;\n  }, na = function(a) {\n    var b = v(a), c = v(b);\n    a = new Date(0);\n    a.setFullYear(c.getFullYear(), 0, 1);\n    a.setHours(0, 0, 0, 0);\n    b = ma(b);\n    a = ma(a);\n    b = b.getTime() - 60000 * b.getTimezoneOffset();\n    a = a.getTime() - 60000 * a.getTimezoneOffset();\n    return Math.round((b - a) / 86400000) + 1;\n  }, H = function(a) {\n    var b = {weekStartsOn:1};\n    b = b ? Number(b.weekStartsOn) || 0 : 0;\n    a = v(a);\n    var c = a.getDay();\n    b = (c < b ? 7 : 0) + c - b;\n    a.setDate(a.getDate() - b);\n    a.setHours(0, 0, 0, 0);\n    return a;\n  }, O = function(a) {\n    a = v(a);\n    var b = a.getFullYear(), c = new Date(0);\n    c.setFullYear(b + 1, 0, 4);\n    c.setHours(0, 0, 0, 0);\n    c = H(c);\n    var f = new Date(0);\n    f.setFullYear(b, 0, 4);\n    f.setHours(0, 0, 0, 0);\n    f = H(f);\n    return a.getTime() >= c.getTime() ? b + 1 : a.getTime() >= f.getTime() ? b : b - 1;\n  }, oa = function(a) {\n    var b = v(a);\n    a = H(b).getTime();\n    b = O(b);\n    var c = new Date(0);\n    c.setFullYear(b, 0, 4);\n    c.setHours(0, 0, 0, 0);\n    b = H(c);\n    a -= b.getTime();\n    return Math.round(a / 604800000) + 1;\n  }, db = \"M MM Q D DD DDD DDDD d E W WW YY YYYY GG GGGG H HH h hh m mm s ss S SS SSS Z ZZ X x\".split(\" \"), eb = function(a) {\n    var b = [], c;\n    for (c in a) {\n      a.hasOwnProperty(c) && b.push(c);\n    }\n    a = db.concat(b).sort().reverse();\n    return new RegExp(\"(\\\\[[^\\\\[]*\\\\])|(\\\\\\\\)?(\" + a.join(\"|\") + \"|.)\", \"g\");\n  };\n  (function() {\n    var a = {lessThanXSeconds:{one:\"less than a second\", other:\"less than {{count}} seconds\"}, xSeconds:{one:\"1 second\", other:\"{{count}} seconds\"}, halfAMinute:\"half a minute\", lessThanXMinutes:{one:\"less than a minute\", other:\"less than {{count}} minutes\"}, xMinutes:{one:\"1 minute\", other:\"{{count}} minutes\"}, aboutXHours:{one:\"about 1 hour\", other:\"about {{count}} hours\"}, xHours:{one:\"1 hour\", other:\"{{count}} hours\"}, xDays:{one:\"1 day\", other:\"{{count}} days\"}, aboutXMonths:{one:\"about 1 month\", \n    other:\"about {{count}} months\"}, xMonths:{one:\"1 month\", other:\"{{count}} months\"}, aboutXYears:{one:\"about 1 year\", other:\"about {{count}} years\"}, xYears:{one:\"1 year\", other:\"{{count}} years\"}, overXYears:{one:\"over 1 year\", other:\"over {{count}} years\"}, almostXYears:{one:\"almost 1 year\", other:\"almost {{count}} years\"}};\n    return {localize:function(b, c, f) {\n      f = f || {};\n      b = \"string\" === typeof a[b] ? a[b] : 1 === c ? a[b].one : a[b].other.replace(\"{{count}}\", c);\n      return f.addSuffix ? 0 < f.comparison ? \"in \" + b : b + \" ago\" : b;\n    }};\n  })();\n  var pa = function() {\n    var a = \"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\".split(\" \"), b = \"January February March April May June July August September October November December\".split(\" \"), c = \"Su Mo Tu We Th Fr Sa\".split(\" \"), f = \"Sun Mon Tue Wed Thu Fri Sat\".split(\" \"), e = \"Sunday Monday Tuesday Wednesday Thursday Friday Saturday\".split(\" \"), h = [\"AM\", \"PM\"], g = [\"am\", \"pm\"], l = [\"a.m.\", \"p.m.\"], n = {MMM:function(b) {\n      return a[b.getMonth()];\n    }, MMMM:function(a) {\n      return b[a.getMonth()];\n    }, dd:function(a) {\n      return c[a.getDay()];\n    }, ddd:function(a) {\n      return f[a.getDay()];\n    }, dddd:function(a) {\n      return e[a.getDay()];\n    }, A:function(a) {\n      return 1 <= a.getHours() / 12 ? h[1] : h[0];\n    }, a:function(a) {\n      return 1 <= a.getHours() / 12 ? g[1] : g[0];\n    }, aa:function(a) {\n      return 1 <= a.getHours() / 12 ? l[1] : l[0];\n    }};\n    \"M D DDD d Q W\".split(\" \").forEach(function(a) {\n      n[a + \"o\"] = function(b, c) {\n        return Ga(c[a](b));\n      };\n    });\n    return {formatters:n, formattingTokensRegExp:eb(n)};\n  }(), L = {M:function(a) {\n    return a.getMonth() + 1;\n  }, MM:function(a) {\n    return n(a.getMonth() + 1, 2);\n  }, Q:function(a) {\n    return Math.ceil((a.getMonth() + 1) / 3);\n  }, D:function(a) {\n    return a.getDate();\n  }, DD:function(a) {\n    return n(a.getDate(), 2);\n  }, DDD:function(a) {\n    return na(a);\n  }, DDDD:function(a) {\n    return n(na(a), 3);\n  }, d:function(a) {\n    return a.getDay();\n  }, E:function(a) {\n    return a.getDay() || 7;\n  }, W:function(a) {\n    return oa(a);\n  }, WW:function(a) {\n    return n(oa(a), 2);\n  }, YY:function(a) {\n    return n(a.getFullYear(), 4).substr(2);\n  }, YYYY:function(a) {\n    return n(a.getFullYear(), 4);\n  }, GG:function(a) {\n    return String(O(a)).substr(2);\n  }, GGGG:function(a) {\n    return O(a);\n  }, H:function(a) {\n    return a.getHours();\n  }, HH:function(a) {\n    return n(a.getHours(), 2);\n  }, h:function(a) {\n    a = a.getHours();\n    return 0 === a ? 12 : 12 < a ? a % 12 : a;\n  }, hh:function(a) {\n    return n(L.h(a), 2);\n  }, m:function(a) {\n    return a.getMinutes();\n  }, mm:function(a) {\n    return n(a.getMinutes(), 2);\n  }, s:function(a) {\n    return a.getSeconds();\n  }, ss:function(a) {\n    return n(a.getSeconds(), 2);\n  }, S:function(a) {\n    return Math.floor(a.getMilliseconds() / 100);\n  }, SS:function(a) {\n    return n(Math.floor(a.getMilliseconds() / 10), 2);\n  }, SSS:function(a) {\n    return n(a.getMilliseconds(), 3);\n  }, Z:function(a) {\n    return R(a.getTimezoneOffset(), \":\");\n  }, ZZ:function(a) {\n    return R(a.getTimezoneOffset());\n  }, X:function(a) {\n    return Math.floor(a.getTime() / 1000);\n  }, x:function(a) {\n    return a.getTime();\n  }}, ca = function(a, b, c) {\n    b = b ? String(b) : \"YYYY-MM-DDTHH:mm:ss.SSSZ\";\n    var d = (c || {}).locale;\n    c = pa.formatters;\n    var e = pa.formattingTokensRegExp;\n    d && d.format && d.format.formatters && (c = d.format.formatters, d.format.formattingTokensRegExp && (e = d.format.formattingTokensRegExp));\n    a = v(a);\n    if (a instanceof Date) {\n      d = !isNaN(a);\n    } else {\n      throw new TypeError(toString.call(a) + \" is not an instance of Date\");\n    }\n    return d ? Ha(b, c, e)(a) : \"Invalid Date\";\n  }, V = {color:void 0, size:void 0, className:void 0, style:void 0, attr:void 0}, U = u.createContext && u.createContext(V), y = function() {\n    y = Object.assign || function(a) {\n      for (var b, c = 1, f = arguments.length; c < f; c++) {\n        b = arguments[c];\n        for (var e in b) {\n          Object.prototype.hasOwnProperty.call(b, e) && (a[e] = b[e]);\n        }\n      }\n      return a;\n    };\n    return y.apply(this, arguments);\n  }, Y = function(a) {\n    return T({tag:\"svg\", attr:{viewBox:\"0 0 496 512\"}, child:[{tag:\"path\", attr:{d:\"M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z\"}}]})(a);\n  };\n  Y.displayName = \"FaGithub\";\n  var X = function(a) {\n    return T({tag:\"svg\", attr:{viewBox:\"0 0 512 512\"}, child:[{tag:\"path\", attr:{d:\"M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z\"}}]})(a);\n  };\n  X.displayName = \"FaTwitter\";\n  var Oa = c.css(Z(), '\\nfont-family: -apple-system,\\n  BlinkMacSystemFont,\\n  \"Segoe UI\",\\n  \"Roboto\",\\n  \"Oxygen\",\\n  \"Ubuntu\",\\n  \"Cantarell\",\\n  \"Fira Sans\",\\n  \"Droid Sans\",\\n  \"Helvetica Neue\",\\n  sans-serif;\\n', \"\\nfont-family: Menlo,\\n  Monaco,\\n  Lucida Console,\\n  Liberation Mono,\\n  DejaVu Sans Mono,\\n  Bitstream Vera Sans Mono,\\n  Courier New,\\n  monospace;\\n\"), h = {color:\"#0076ff\", textDecoration:\"none\", \":hover\":{textDecoration:\"underline\"}};\n  ea.propTypes = {location:G.object, children:G.node};\n  z.render(Pa.createElement(ea, null), document.getElementById(\"root\"));\n})(React, ReactDOM, emotionCore);\n\n"}]}];
+var entryManifest = [{"browse":[{"format":"iife","globalImports":["react","react-dom","@emotion/core"],"url":"/_client/browse-87e5ee90.js","code":"'use strict';\n(function(t, y, c) {\n  function z() {\n    z = Object.assign || function(a) {\n      for (var b = 1; b < arguments.length; b++) {\n        var e = arguments[b], c;\n        for (c in e) {\n          Object.prototype.hasOwnProperty.call(e, c) && (a[c] = e[c]);\n        }\n      }\n      return a;\n    };\n    return z.apply(this, arguments);\n  }\n  function R(a, b) {\n    if (null == a) {\n      return {};\n    }\n    var c = {}, g = Object.keys(a), d;\n    for (d = 0; d < g.length; d++) {\n      var h = g[d];\n      0 <= b.indexOf(h) || (c[h] = a[h]);\n    }\n    return c;\n  }\n  function S(a, b) {\n    b || (b = a.slice(0));\n    a.raw = b;\n    return a;\n  }\n  function C(a, b) {\n    return b = {exports:{}}, a(b, b.exports), b.exports;\n  }\n  function K(a, b, c, g, d) {\n    for (var e in a) {\n      if (ma(a, e)) {\n        try {\n          if (\"function\" !== typeof a[e]) {\n            var r = Error((g || \"React class\") + \": \" + c + \" type `\" + e + \"` is invalid; it must be a function, usually from the `prop-types` package, but received `\" + typeof a[e] + \"`.This often happens because of typos such as `PropTypes.function` instead of `PropTypes.func`.\");\n            r.name = \"Invariant Violation\";\n            throw r;\n          }\n          var k = a[e](b, e, g, c, null, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n        } catch (p) {\n          k = p;\n        }\n        !k || k instanceof Error || L((g || \"React class\") + \": type specification of \" + c + \" `\" + e + \"` is invalid; the type checker function must return `null` or an `Error` but returned a \" + typeof k + \". You may have forgotten to pass an argument to the type checker creator (arrayOf, instanceOf, objectOf, oneOf, oneOfType, and shape all require an argument).\");\n        if (k instanceof Error && !(k.message in M)) {\n          M[k.message] = !0;\n          var A = d ? d() : \"\";\n          L(\"Failed \" + c + \" type: \" + k.message + (null != A ? A : \"\"));\n        }\n      }\n    }\n  }\n  function D() {\n    return null;\n  }\n  function na(a) {\n    var b = a.children;\n    a = R(a, [\"children\"]);\n    return N.createElement(T.Provider, {children:b, value:a});\n  }\n  function U(a) {\n    return a && a.map(function(a, c) {\n      return t.createElement(a.tag, x({key:c}, a.attr), U(a.child));\n    });\n  }\n  function E(a) {\n    return function(b) {\n      return t.createElement(oa, x({attr:x({}, a.attr)}, b), U(a.child));\n    };\n  }\n  function oa(a) {\n    var b = function(b) {\n      var c = a.size || b.size || \"1em\";\n      if (b.className) {\n        var e = b.className;\n      }\n      a.className && (e = (e ? e + \" \" : \"\") + a.className);\n      var h = a.attr, r = a.title, k = [\"attr\", \"title\"], A = {}, p;\n      for (p in a) {\n        Object.prototype.hasOwnProperty.call(a, p) && 0 > k.indexOf(p) && (A[p] = a[p]);\n      }\n      if (null != a && \"function\" === typeof Object.getOwnPropertySymbols) {\n        var q = 0;\n        for (p = Object.getOwnPropertySymbols(a); q < p.length; q++) {\n          0 > k.indexOf(p[q]) && (A[p[q]] = a[p[q]]);\n        }\n      }\n      return t.createElement(\"svg\", x({stroke:\"currentColor\", fill:\"currentColor\", strokeWidth:\"0\"}, b.attr, h, A, {className:e, style:x({color:a.color || b.color}, b.style, a.style), height:c, width:c, xmlns:\"http://www.w3.org/2000/svg\"}), r && t.createElement(\"title\", null, r), a.children);\n    };\n    return void 0 !== V ? t.createElement(V.Consumer, null, function(a) {\n      return b(a);\n    }) : b(W);\n  }\n  function pa(a) {\n    return E({tag:\"svg\", attr:{viewBox:\"0 0 14 16\"}, child:[{tag:\"path\", attr:{fillRule:\"evenodd\", d:\"M13 4H7V3c0-.66-.31-1-1-1H1c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1V5c0-.55-.45-1-1-1zM6 4H1V3h5v1z\"}}]})(a);\n  }\n  function qa(a) {\n    return E({tag:\"svg\", attr:{viewBox:\"0 0 12 16\"}, child:[{tag:\"path\", attr:{fillRule:\"evenodd\", d:\"M6 5H2V4h4v1zM2 8h7V7H2v1zm0 2h7V9H2v1zm0 2h7v-1H2v1zm10-7.5V14c0 .55-.45 1-1 1H1c-.55 0-1-.45-1-1V2c0-.55.45-1 1-1h7.5L12 4.5zM11 5L8 2H1v12h10V5z\"}}]})(a);\n  }\n  function ra(a) {\n    return E({tag:\"svg\", attr:{viewBox:\"0 0 496 512\"}, child:[{tag:\"path\", attr:{d:\"M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z\"}}]})(a);\n  }\n  function sa(a) {\n    return E({tag:\"svg\", attr:{viewBox:\"0 0 512 512\"}, child:[{tag:\"path\", attr:{d:\"M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z\"}}]})(a);\n  }\n  function F(a, b) {\n    var e = b.css;\n    b = R(b, [\"css\"]);\n    return c.jsx(a, z({css:z({}, e, {verticalAlign:\"text-bottom\"})}, b));\n  }\n  function ta(a) {\n    return F(pa, a);\n  }\n  function ua(a) {\n    return F(qa, a);\n  }\n  function va(a) {\n    return F(sa, a);\n  }\n  function wa(a) {\n    return F(ra, a);\n  }\n  function X(a) {\n    var b = a.path, e = a.details, g = [];\n    \"/\" !== b && g.push(c.jsx(\"tr\", {key:\"..\"}, c.jsx(\"td\", {css:O}), c.jsx(\"td\", {css:v}, c.jsx(\"a\", {title:\"Parent directory\", href:\"../\", css:P}, \"..\")), c.jsx(\"td\", {css:v}), c.jsx(\"td\", {css:Q})));\n    a = Object.keys(e).reduce(function(a, b) {\n      var c = a.subdirs, g = a.files;\n      b = e[b];\n      \"directory\" === b.type ? c.push(b) : \"file\" === b.type && g.push(b);\n      return a;\n    }, {subdirs:[], files:[]});\n    var d = a.files;\n    a.subdirs.sort(Y(\"path\")).forEach(function(a) {\n      a = a.path.substr(1 < b.length ? b.length + 1 : 1);\n      var e = a + \"/\";\n      g.push(c.jsx(\"tr\", {key:a}, c.jsx(\"td\", {css:O}, c.jsx(ta, null)), c.jsx(\"td\", {css:v}, c.jsx(\"a\", {title:a, href:e, css:P}, a)), c.jsx(\"td\", {css:v}, \"-\"), c.jsx(\"td\", {css:Q}, \"-\")));\n    });\n    d.sort(Y(\"path\")).forEach(function(a) {\n      var e = a.size, d = a.contentType;\n      a = a.path.substr(1 < b.length ? b.length + 1 : 1);\n      g.push(c.jsx(\"tr\", {key:a}, c.jsx(\"td\", {css:O}, c.jsx(ua, null)), c.jsx(\"td\", {css:v}, c.jsx(\"a\", {title:a, href:a, css:P}, a)), c.jsx(\"td\", {css:v}, Z(e)), c.jsx(\"td\", {css:Q}, d)));\n    });\n    return c.jsx(\"div\", {css:{border:\"1px solid #dfe2e5\", borderRadius:3, borderTopWidth:0, \"@media (max-width: 700px)\":{borderRightWidth:0, borderLeftWidth:0}}}, c.jsx(\"table\", {css:{width:\"100%\", borderCollapse:\"collapse\", borderRadius:2, background:\"#fff\", \"@media (max-width: 700px)\":{\"& th + th + th + th, & td + td + td + td\":{display:\"none\"}}}}, c.jsx(\"thead\", null, c.jsx(\"tr\", null, c.jsx(\"th\", null, c.jsx(G, null, \"Icon\")), c.jsx(\"th\", null, c.jsx(G, null, \"Name\")), c.jsx(\"th\", null, c.jsx(G, \n    null, \"Size\")), c.jsx(\"th\", null, c.jsx(G, null, \"Content Type\")))), c.jsx(\"tbody\", null, g)));\n  }\n  function xa(a) {\n    a = a.split(\"/\");\n    return a[a.length - 1];\n  }\n  function ya(a) {\n    var b = a.uri;\n    return c.jsx(\"div\", {css:{padding:20, textAlign:\"center\"}}, c.jsx(\"img\", {title:xa(a.path), src:b}));\n  }\n  function za(a) {\n    a = a.highlights.slice(0);\n    var b = a.length && \"\" === a[a.length - 1];\n    b && a.pop();\n    return c.jsx(\"div\", {className:\"code-listing\", css:{overflowX:\"auto\", overflowY:\"hidden\", paddingTop:5, paddingBottom:5}}, c.jsx(\"table\", {css:{border:\"none\", borderCollapse:\"collapse\", borderSpacing:0}}, c.jsx(\"tbody\", null, a.map(function(a, b) {\n      var e = b + 1;\n      return c.jsx(\"tr\", {key:b}, c.jsx(\"td\", {id:\"L\" + e, css:{paddingLeft:10, paddingRight:10, color:\"rgba(27,31,35,.3)\", textAlign:\"right\", verticalAlign:\"top\", width:\"1%\", minWidth:50, userSelect:\"none\"}}, c.jsx(\"span\", null, e)), c.jsx(\"td\", {id:\"LC\" + e, css:{paddingLeft:10, paddingRight:10, color:\"#24292e\", whiteSpace:\"pre\"}}, c.jsx(\"code\", {dangerouslySetInnerHTML:{__html:a}})));\n    }), !b && c.jsx(\"tr\", {key:\"no-newline\"}, c.jsx(\"td\", {css:{paddingLeft:10, paddingRight:10, color:\"rgba(27,31,35,.3)\", textAlign:\"right\", verticalAlign:\"top\", width:\"1%\", minWidth:50, userSelect:\"none\"}}, \"\\\\\"), c.jsx(\"td\", {css:{paddingLeft:10, color:\"rgba(27,31,35,.3)\", userSelect:\"none\"}}, \"No newline at end of file\")))));\n  }\n  function Aa() {\n    return c.jsx(\"div\", {css:{padding:20}}, c.jsx(\"p\", {css:{textAlign:\"center\"}}, \"No preview available.\"));\n  }\n  function aa(a) {\n    var b = a.path, e = a.details, g = t.useContext(T);\n    a = g.packageName;\n    g = g.packageVersion;\n    var d = e.highlights, h = e.uri, r = e.language;\n    e = e.size;\n    var k = b.split(\"/\");\n    k = k[k.length - 1];\n    return c.jsx(\"div\", {css:{border:\"1px solid #dfe2e5\", borderRadius:3, \"@media (max-width: 700px)\":{borderRightWidth:0, borderLeftWidth:0}}}, c.jsx(\"div\", {css:{padding:10, background:\"#f6f8fa\", color:\"#424242\", border:\"1px solid #d1d5da\", borderTopLeftRadius:3, borderTopRightRadius:3, margin:\"-1px -1px 0\", display:\"flex\", flexDirection:\"row\", alignItems:\"center\", justifyContent:\"space-between\", \"@media (max-width: 700px)\":{paddingRight:20, paddingLeft:20}}}, c.jsx(\"span\", null, Z(e)), \" \", c.jsx(\"span\", \n    null, r), \" \", c.jsx(\"a\", {title:k, href:\"/\" + a + \"@\" + g + b, css:{display:\"inline-block\", textDecoration:\"none\", padding:\"2px 8px\", fontWeight:600, fontSize:\"0.9rem\", color:\"#24292e\", backgroundColor:\"#eff3f6\", border:\"1px solid rgba(27,31,35,.2)\", borderRadius:3, \":hover\":{backgroundColor:\"#e6ebf1\", borderColor:\"rgba(27,31,35,.35)\"}, \":active\":{backgroundColor:\"#e9ecef\", borderColor:\"rgba(27,31,35,.35)\", boxShadow:\"inset 0 0.15em 0.3em rgba(27,31,35,.15)\"}}}, \"View Raw\")), d ? c.jsx(za, {highlights:d}) : \n    h ? c.jsx(ya, {path:b, uri:h}) : c.jsx(Aa, null));\n  }\n  function ba() {\n    var a = S([\"\\n  .code-listing {\\n    background: #fbfdff;\\n    color: #383a42;\\n  }\\n  .code-comment,\\n  .code-quote {\\n    color: #a0a1a7;\\n    font-style: italic;\\n  }\\n  .code-doctag,\\n  .code-keyword,\\n  .code-link,\\n  .code-formula {\\n    color: #a626a4;\\n  }\\n  .code-section,\\n  .code-name,\\n  .code-selector-tag,\\n  .code-deletion,\\n  .code-subst {\\n    color: #e45649;\\n  }\\n  .code-literal {\\n    color: #0184bb;\\n  }\\n  .code-string,\\n  .code-regexp,\\n  .code-addition,\\n  .code-attribute,\\n  .code-meta-string {\\n    color: #50a14f;\\n  }\\n  .code-built_in,\\n  .code-class .code-title {\\n    color: #c18401;\\n  }\\n  .code-attr,\\n  .code-variable,\\n  .code-template-variable,\\n  .code-type,\\n  .code-selector-class,\\n  .code-selector-attr,\\n  .code-selector-pseudo,\\n  .code-number {\\n    color: #986801;\\n  }\\n  .code-symbol,\\n  .code-bullet,\\n  .code-meta,\\n  .code-selector-id,\\n  .code-title {\\n    color: #4078f2;\\n  }\\n  .code-emphasis {\\n    font-style: italic;\\n  }\\n  .code-strong {\\n    font-weight: bold;\\n  }\\n\"]);\n    ba = function() {\n      return a;\n    };\n    return a;\n  }\n  function ca() {\n    var a = S([\"\\n  html {\\n    box-sizing: border-box;\\n  }\\n  *,\\n  *:before,\\n  *:after {\\n    box-sizing: inherit;\\n  }\\n\\n  html,\\n  body,\\n  #root {\\n    height: 100%;\\n    margin: 0;\\n  }\\n\\n  body {\\n    \", \"\\n    font-size: 16px;\\n    line-height: 1.5;\\n    background: white;\\n    color: black;\\n  }\\n\\n  code {\\n    \", \"\\n  }\\n\\n  th,\\n  td {\\n    padding: 0;\\n  }\\n\\n  select {\\n    font-size: inherit;\\n  }\\n\\n  #root {\\n    display: flex;\\n    flex-direction: column;\\n  }\\n\"]);\n    ca = function() {\n      return a;\n    };\n    return a;\n  }\n  function da(a) {\n    var b = a.packageName, e = a.packageVersion, g = a.availableVersions;\n    g = void 0 === g ? [] : g;\n    var d = a.filename;\n    a = a.target;\n    var h = [];\n    if (\"/\" === d) {\n      h.push(b);\n    } else {\n      var r = \"/browse/\" + b + \"@\" + e;\n      h.push(c.jsx(\"a\", {href:r + \"/\", css:ea}, b));\n      d = d.replace(/^\\/+/, \"\").replace(/\\/+$/, \"\").split(\"/\");\n      var k = d.pop();\n      d.forEach(function(a) {\n        r += \"/\" + a;\n        h.push(c.jsx(\"a\", {href:r + \"/\", css:ea}, a));\n      });\n      h.push(k);\n    }\n    return c.jsx(na, {packageName:b, packageVersion:e}, c.jsx(t.Fragment, null, c.jsx(c.Global, {styles:Ba}), c.jsx(c.Global, {styles:Ca}), c.jsx(\"div\", {css:{flex:\"1 0 auto\"}}, c.jsx(\"div\", {css:{maxWidth:940, padding:\"0 20px\", margin:\"0 auto\"}}, c.jsx(\"header\", {css:{textAlign:\"center\"}}, c.jsx(\"h1\", {css:{fontSize:\"3rem\", marginTop:\"2rem\"}}, c.jsx(\"a\", {href:\"/\", css:{color:\"#000\", textDecoration:\"none\"}}, \"UNPKG\"))), c.jsx(\"header\", {css:{display:\"flex\", flexDirection:\"row\", alignItems:\"center\", \n    \"@media (max-width: 700px)\":{flexDirection:\"column-reverse\", alignItems:\"flex-start\"}}}, c.jsx(\"h1\", {css:{fontSize:\"1.5rem\", fontWeight:\"normal\", flex:1}}, c.jsx(\"nav\", null, h.map(function(a, b, e) {\n      return c.jsx(\"span\", {key:b}, 0 !== b && c.jsx(\"span\", {css:{paddingLeft:5, paddingRight:5}}, \"/\"), b === e.length - 1 ? c.jsx(\"strong\", null, a) : a);\n    }))), c.jsx(\"p\", {css:{marginLeft:20, \"@media (max-width: 700px)\":{marginLeft:0, marginBottom:0}}}, c.jsx(\"label\", null, \"Version:\", \" \", c.jsx(\"select\", {name:\"version\", defaultValue:e, onChange:function(a) {\n      window.location.href = window.location.href.replace(\"@\" + e, \"@\" + a.target.value);\n    }, css:{appearance:\"none\", cursor:\"pointer\", padding:\"4px 24px 4px 8px\", fontWeight:600, fontSize:\"0.9em\", color:\"#24292e\", border:\"1px solid rgba(27,31,35,.2)\", borderRadius:3, backgroundColor:\"#eff3f6\", backgroundImage:\"url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAKCAYAAAC9vt6cAAAAAXNSR0IArs4c6QAAARFJREFUKBVjZAACNS39RhBNKrh17WI9o4quoT3Dn78HSNUMUs/CzOTI/O7Vi4dCYpJ3/jP+92BkYGAlyiBGhm8MjIxJt65e3MQM0vDu9YvLYmISILYZELOBxHABRkaGr0yMzF23r12YDFIDNgDEePv65SEhEXENBkYGFSAXuyGMjF8Z/jOsvX3tYiFIDwgwQSgIaaijnvj/P8M5IO8HsjiY/f//D4b//88A1SQhywG9jQr09PS4v/1mPAeUUPzP8B8cJowMjL+Bqu6xMQmaXL164AuyDgwDQJLa2qYSP//9vARkCoMVMzK8YeVkNbh+9uxzMB+JwGoASF5Vx0jz/98/18BqmZi171w9D2EjaaYKEwAEK00XQLdJuwAAAABJRU5ErkJggg==)\", \n    backgroundPosition:\"right 8px center\", backgroundRepeat:\"no-repeat\", backgroundSize:\"auto 25%\", \":hover\":{backgroundColor:\"#e6ebf1\", borderColor:\"rgba(27,31,35,.35)\"}, \":active\":{backgroundColor:\"#e9ecef\", borderColor:\"rgba(27,31,35,.35)\", boxShadow:\"inset 0 0.15em 0.3em rgba(27,31,35,.15)\"}}}, g.map(function(a) {\n      return c.jsx(\"option\", {key:a, value:a}, a);\n    })))))), c.jsx(\"div\", {css:{maxWidth:940, padding:\"0 20px\", margin:\"0 auto\", \"@media (max-width: 700px)\":{padding:0, margin:0}}}, \"directory\" === a.type ? c.jsx(X, {path:a.path, details:a.details}) : \"file\" === a.type ? c.jsx(aa, {path:a.path, details:a.details}) : null)), c.jsx(\"footer\", {css:{marginTop:\"5rem\", background:\"black\", color:\"#aaa\"}}, c.jsx(\"div\", {css:{maxWidth:940, padding:\"10px 20px\", margin:\"0 auto\", display:\"flex\", flexDirection:\"row\", alignItems:\"center\", justifyContent:\"space-between\"}}, \n    c.jsx(\"p\", null, \"\\u00a9 \", (new Date).getFullYear(), \" UNPKG\"), c.jsx(\"p\", {css:{fontSize:\"1.5rem\"}}, c.jsx(\"a\", {title:\"Twitter\", href:\"https://twitter.com/unpkg\", css:{color:\"#aaa\", display:\"inline-block\", \":hover\":{color:\"white\"}}}, c.jsx(va, null)), c.jsx(\"a\", {title:\"GitHub\", href:\"https://github.com/mjackson/unpkg\", css:{color:\"#aaa\", display:\"inline-block\", marginLeft:\"1rem\", \":hover\":{color:\"white\"}}}, c.jsx(wa, null)))))));\n  }\n  var N = \"default\" in t ? t[\"default\"] : t;\n  y = y && Object.prototype.hasOwnProperty.call(y, \"default\") ? y[\"default\"] : y;\n  var Da = \"undefined\" !== typeof globalThis ? globalThis : \"undefined\" !== typeof window ? window : \"undefined\" !== typeof global ? global : \"undefined\" !== typeof self ? self : {}, Ia = C(function(a, b) {\n    (function() {\n      function a(a) {\n        if (\"object\" === typeof a && null !== a) {\n          var b = a.$$typeof;\n          switch(b) {\n            case h:\n              switch(a = a.type, a) {\n                case n:\n                case m:\n                case k:\n                case p:\n                case l:\n                case u:\n                  return a;\n                default:\n                  switch(a = a && a.$$typeof, a) {\n                    case f:\n                    case w:\n                    case H:\n                    case I:\n                    case q:\n                      return a;\n                    default:\n                      return b;\n                  }\n              }case r:\n              return b;\n          }\n        }\n      }\n      function c(b) {\n        return a(b) === m;\n      }\n      var d = \"function\" === typeof Symbol && Symbol.for, h = d ? Symbol.for(\"react.element\") : 60103, r = d ? Symbol.for(\"react.portal\") : 60106, k = d ? Symbol.for(\"react.fragment\") : 60107, l = d ? Symbol.for(\"react.strict_mode\") : 60108, p = d ? Symbol.for(\"react.profiler\") : 60114, q = d ? Symbol.for(\"react.provider\") : 60109, f = d ? Symbol.for(\"react.context\") : 60110, n = d ? Symbol.for(\"react.async_mode\") : 60111, m = d ? Symbol.for(\"react.concurrent_mode\") : 60111, w = d ? Symbol.for(\"react.forward_ref\") : \n      60112, u = d ? Symbol.for(\"react.suspense\") : 60113, Ea = d ? Symbol.for(\"react.suspense_list\") : 60120, I = d ? Symbol.for(\"react.memo\") : 60115, H = d ? Symbol.for(\"react.lazy\") : 60116, Fa = d ? Symbol.for(\"react.block\") : 60121, Ga = d ? Symbol.for(\"react.fundamental\") : 60117, Ha = d ? Symbol.for(\"react.responder\") : 60118, t = d ? Symbol.for(\"react.scope\") : 60119, fa = !1;\n      b.AsyncMode = n;\n      b.ConcurrentMode = m;\n      b.ContextConsumer = f;\n      b.ContextProvider = q;\n      b.Element = h;\n      b.ForwardRef = w;\n      b.Fragment = k;\n      b.Lazy = H;\n      b.Memo = I;\n      b.Portal = r;\n      b.Profiler = p;\n      b.StrictMode = l;\n      b.Suspense = u;\n      b.isAsyncMode = function(b) {\n        fa || (fa = !0, console.warn(\"The ReactIs.isAsyncMode() alias has been deprecated, and will be removed in React 17+. Update your code to use ReactIs.isConcurrentMode() instead. It has the exact same API.\"));\n        return c(b) || a(b) === n;\n      };\n      b.isConcurrentMode = c;\n      b.isContextConsumer = function(b) {\n        return a(b) === f;\n      };\n      b.isContextProvider = function(b) {\n        return a(b) === q;\n      };\n      b.isElement = function(a) {\n        return \"object\" === typeof a && null !== a && a.$$typeof === h;\n      };\n      b.isForwardRef = function(b) {\n        return a(b) === w;\n      };\n      b.isFragment = function(b) {\n        return a(b) === k;\n      };\n      b.isLazy = function(b) {\n        return a(b) === H;\n      };\n      b.isMemo = function(b) {\n        return a(b) === I;\n      };\n      b.isPortal = function(b) {\n        return a(b) === r;\n      };\n      b.isProfiler = function(b) {\n        return a(b) === p;\n      };\n      b.isStrictMode = function(b) {\n        return a(b) === l;\n      };\n      b.isSuspense = function(b) {\n        return a(b) === u;\n      };\n      b.isValidElementType = function(a) {\n        return \"string\" === typeof a || \"function\" === typeof a || a === k || a === m || a === p || a === l || a === u || a === Ea || \"object\" === typeof a && null !== a && (a.$$typeof === H || a.$$typeof === I || a.$$typeof === q || a.$$typeof === f || a.$$typeof === w || a.$$typeof === Ga || a.$$typeof === Ha || a.$$typeof === t || a.$$typeof === Fa);\n      };\n      b.typeOf = a;\n    })();\n  }), ha = C(function(a) {\n    a.exports = Ia;\n  }), ia = Object.getOwnPropertySymbols, Ja = Object.prototype.hasOwnProperty, Ka = Object.prototype.propertyIsEnumerable, La = function() {\n    try {\n      if (!Object.assign) {\n        return !1;\n      }\n      var a = new String(\"abc\");\n      a[5] = \"de\";\n      if (\"5\" === Object.getOwnPropertyNames(a)[0]) {\n        return !1;\n      }\n      var b = {};\n      for (a = 0; 10 > a; a++) {\n        b[\"_\" + String.fromCharCode(a)] = a;\n      }\n      if (\"0123456789\" !== Object.getOwnPropertyNames(b).map(function(a) {\n        return b[a];\n      }).join(\"\")) {\n        return !1;\n      }\n      var c = {};\n      \"abcdefghijklmnopqrst\".split(\"\").forEach(function(a) {\n        c[a] = a;\n      });\n      return \"abcdefghijklmnopqrst\" !== Object.keys(Object.assign({}, c)).join(\"\") ? !1 : !0;\n    } catch (g) {\n      return !1;\n    }\n  }() ? Object.assign : function(a, b) {\n    if (null === a || void 0 === a) {\n      throw new TypeError(\"Object.assign cannot be called with null or undefined\");\n    }\n    var c = Object(a);\n    for (var g, d = 1; d < arguments.length; d++) {\n      var h = Object(arguments[d]);\n      for (var r in h) {\n        Ja.call(h, r) && (c[r] = h[r]);\n      }\n      if (ia) {\n        g = ia(h);\n        for (var k = 0; k < g.length; k++) {\n          Ka.call(h, g[k]) && (c[g[k]] = h[g[k]]);\n        }\n      }\n    }\n    return c;\n  }, J = Function.call.bind(Object.prototype.hasOwnProperty), L = function() {\n  }, M = {}, ma = J;\n  L = function(a) {\n    a = \"Warning: \" + a;\n    \"undefined\" !== typeof console && console.error(a);\n    try {\n      throw Error(a);\n    } catch (b) {\n    }\n  };\n  K.resetWarningCache = function() {\n    M = {};\n  };\n  var B = function() {\n  };\n  B = function(a) {\n    a = \"Warning: \" + a;\n    \"undefined\" !== typeof console && console.error(a);\n    try {\n      throw Error(a);\n    } catch (b) {\n    }\n  };\n  var Ma = function(a, b) {\n    function c(a, b) {\n      return a === b ? 0 !== a || 1 / a === 1 / b : a !== a && b !== b;\n    }\n    function g(a, b) {\n      this.message = a;\n      this.data = b && \"object\" === typeof b ? b : {};\n      this.stack = \"\";\n    }\n    function d(a) {\n      function m(m, w, f, u, e, n, h) {\n        u = u || \"<<anonymous>>\";\n        n = n || f;\n        if (\"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\" !== h) {\n          if (b) {\n            throw m = Error(\"Calling PropTypes validators directly is not supported by the `prop-types` package. Use `PropTypes.checkPropTypes()` to call them. Read more at http://fb.me/use-check-prop-types\"), m.name = \"Invariant Violation\", m;\n          }\n          \"undefined\" !== typeof console && (h = u + \":\" + f, !c[h] && 3 > d && (B(\"You are manually calling a React.PropTypes validation function for the `\" + n + \"` prop on `\" + u + \"`. This is deprecated and will throw in the standalone `prop-types` package. You may be seeing this warning due to a third-party PropTypes library. See https://fb.me/react-warning-dont-call-proptypes for details.\"), c[h] = !0, d++));\n        }\n        return null == w[f] ? m ? null === w[f] ? new g(\"The \" + e + \" `\" + n + \"` is marked as required \" + (\"in `\" + u + \"`, but its value is `null`.\")) : new g(\"The \" + e + \" `\" + n + \"` is marked as required in \" + (\"`\" + u + \"`, but its value is `undefined`.\")) : null : a(w, f, u, e, n);\n      }\n      var c = {}, d = 0, f = m.bind(null, !1);\n      f.isRequired = m.bind(null, !0);\n      return f;\n    }\n    function h(a) {\n      return d(function(b, m, c, f, d, e) {\n        b = b[m];\n        return l(b) !== a ? (b = p(b), new g(\"Invalid \" + f + \" `\" + d + \"` of type \" + (\"`\" + b + \"` supplied to `\" + c + \"`, expected \") + (\"`\" + a + \"`.\"), {expectedType:a})) : null;\n      });\n    }\n    function r(a, b, c, f, d) {\n      return new g((a || \"React class\") + \": \" + b + \" type `\" + c + \".\" + f + \"` is invalid; it must be a function, usually from the `prop-types` package, but received `\" + d + \"`.\");\n    }\n    function k(b) {\n      switch(typeof b) {\n        case \"number\":\n        case \"string\":\n        case \"undefined\":\n          return !0;\n        case \"boolean\":\n          return !b;\n        case \"object\":\n          if (Array.isArray(b)) {\n            return b.every(k);\n          }\n          if (null === b || a(b)) {\n            return !0;\n          }\n          var c = b && (f && b[f] || b[\"@@iterator\"]);\n          var m = \"function\" === typeof c ? c : void 0;\n          if (m) {\n            if (c = m.call(b), m !== b.entries) {\n              for (; !(b = c.next()).done;) {\n                if (!k(b.value)) {\n                  return !1;\n                }\n              }\n            } else {\n              for (; !(b = c.next()).done;) {\n                if ((b = b.value) && !k(b[1])) {\n                  return !1;\n                }\n              }\n            }\n          } else {\n            return !1;\n          }\n          return !0;\n        default:\n          return !1;\n      }\n    }\n    function l(a) {\n      var b = typeof a;\n      return Array.isArray(a) ? \"array\" : a instanceof RegExp ? \"object\" : \"symbol\" === b || a && (\"Symbol\" === a[\"@@toStringTag\"] || \"function\" === typeof Symbol && a instanceof Symbol) ? \"symbol\" : b;\n    }\n    function p(a) {\n      if (\"undefined\" === typeof a || null === a) {\n        return \"\" + a;\n      }\n      var b = l(a);\n      if (\"object\" === b) {\n        if (a instanceof Date) {\n          return \"date\";\n        }\n        if (a instanceof RegExp) {\n          return \"regexp\";\n        }\n      }\n      return b;\n    }\n    function q(a) {\n      a = p(a);\n      switch(a) {\n        case \"array\":\n        case \"object\":\n          return \"an \" + a;\n        case \"boolean\":\n        case \"date\":\n        case \"regexp\":\n          return \"a \" + a;\n        default:\n          return a;\n      }\n    }\n    var f = \"function\" === typeof Symbol && Symbol.iterator, n = {array:h(\"array\"), bigint:h(\"bigint\"), bool:h(\"boolean\"), func:h(\"function\"), number:h(\"number\"), object:h(\"object\"), string:h(\"string\"), symbol:h(\"symbol\"), any:d(D), arrayOf:function(a) {\n      return d(function(b, c, m, f, d) {\n        if (\"function\" !== typeof a) {\n          return new g(\"Property `\" + d + \"` of component `\" + m + \"` has invalid PropType notation inside arrayOf.\");\n        }\n        b = b[c];\n        if (!Array.isArray(b)) {\n          return b = l(b), new g(\"Invalid \" + f + \" `\" + d + \"` of type \" + (\"`\" + b + \"` supplied to `\" + m + \"`, expected an array.\"));\n        }\n        for (c = 0; c < b.length; c++) {\n          var e = a(b, c, m, f, d + \"[\" + c + \"]\", \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n          if (e instanceof Error) {\n            return e;\n          }\n        }\n        return null;\n      });\n    }, element:function() {\n      return d(function(b, c, f, d, e) {\n        b = b[c];\n        return a(b) ? null : (b = l(b), new g(\"Invalid \" + d + \" `\" + e + \"` of type \" + (\"`\" + b + \"` supplied to `\" + f + \"`, expected a single ReactElement.\")));\n      });\n    }(), elementType:function() {\n      return d(function(a, b, c, f, d) {\n        a = a[b];\n        return ha.isValidElementType(a) ? null : (a = l(a), new g(\"Invalid \" + f + \" `\" + d + \"` of type \" + (\"`\" + a + \"` supplied to `\" + c + \"`, expected a single ReactElement type.\")));\n      });\n    }(), instanceOf:function(a) {\n      return d(function(b, c, f, d, m) {\n        if (!(b[c] instanceof a)) {\n          var e = a.name || \"<<anonymous>>\";\n          b = b[c];\n          b = b.constructor && b.constructor.name ? b.constructor.name : \"<<anonymous>>\";\n          return new g(\"Invalid \" + d + \" `\" + m + \"` of type \" + (\"`\" + b + \"` supplied to `\" + f + \"`, expected \") + (\"instance of `\" + e + \"`.\"));\n        }\n        return null;\n      });\n    }, node:function() {\n      return d(function(a, b, c, f, d) {\n        return k(a[b]) ? null : new g(\"Invalid \" + f + \" `\" + d + \"` supplied to \" + (\"`\" + c + \"`, expected a ReactNode.\"));\n      });\n    }(), objectOf:function(a) {\n      return d(function(b, c, f, d, e) {\n        if (\"function\" !== typeof a) {\n          return new g(\"Property `\" + e + \"` of component `\" + f + \"` has invalid PropType notation inside objectOf.\");\n        }\n        b = b[c];\n        c = l(b);\n        if (\"object\" !== c) {\n          return new g(\"Invalid \" + d + \" `\" + e + \"` of type \" + (\"`\" + c + \"` supplied to `\" + f + \"`, expected an object.\"));\n        }\n        for (var m in b) {\n          if (J(b, m) && (c = a(b, m, f, d, e + \".\" + m, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\"), c instanceof Error)) {\n            return c;\n          }\n        }\n        return null;\n      });\n    }, oneOf:function(a) {\n      return Array.isArray(a) ? d(function(b, f, d, e, m) {\n        b = b[f];\n        for (f = 0; f < a.length; f++) {\n          if (c(b, a[f])) {\n            return null;\n          }\n        }\n        f = JSON.stringify(a, function(a, b) {\n          return \"symbol\" === p(b) ? String(b) : b;\n        });\n        return new g(\"Invalid \" + e + \" `\" + m + \"` of value `\" + String(b) + \"` \" + (\"supplied to `\" + d + \"`, expected one of \" + f + \".\"));\n      }) : (1 < arguments.length ? B(\"Invalid arguments supplied to oneOf, expected an array, got \" + arguments.length + \" arguments. A common mistake is to write oneOf(x, y, z) instead of oneOf([x, y, z]).\") : B(\"Invalid argument supplied to oneOf, expected an array.\"), D);\n    }, oneOfType:function(a) {\n      if (!Array.isArray(a)) {\n        return B(\"Invalid argument supplied to oneOfType, expected an instance of array.\"), D;\n      }\n      for (var b = 0; b < a.length; b++) {\n        var c = a[b];\n        if (\"function\" !== typeof c) {\n          return B(\"Invalid argument supplied to oneOfType. Expected an array of check functions, but received \" + q(c) + \" at index \" + b + \".\"), D;\n        }\n      }\n      return d(function(b, c, f, d, e) {\n        for (var m = [], n = 0; n < a.length; n++) {\n          var h = (0,a[n])(b, c, f, d, e, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n          if (null == h) {\n            return null;\n          }\n          h.data && J(h.data, \"expectedType\") && m.push(h.data.expectedType);\n        }\n        b = 0 < m.length ? \", expected one of type [\" + m.join(\", \") + \"]\" : \"\";\n        return new g(\"Invalid \" + d + \" `\" + e + \"` supplied to \" + (\"`\" + f + \"`\" + b + \".\"));\n      });\n    }, shape:function(a) {\n      return d(function(b, c, f, d, e) {\n        b = b[c];\n        c = l(b);\n        if (\"object\" !== c) {\n          return new g(\"Invalid \" + d + \" `\" + e + \"` of type `\" + c + \"` \" + (\"supplied to `\" + f + \"`, expected `object`.\"));\n        }\n        for (var m in a) {\n          c = a[m];\n          if (\"function\" !== typeof c) {\n            return r(f, d, e, m, p(c));\n          }\n          if (c = c(b, m, f, d, e + \".\" + m, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n            return c;\n          }\n        }\n        return null;\n      });\n    }, exact:function(a) {\n      return d(function(b, c, f, d, e) {\n        var m = b[c], n = l(m);\n        if (\"object\" !== n) {\n          return new g(\"Invalid \" + d + \" `\" + e + \"` of type `\" + n + \"` \" + (\"supplied to `\" + f + \"`, expected `object`.\"));\n        }\n        n = La({}, b[c], a);\n        for (var h in n) {\n          n = a[h];\n          if (J(a, h) && \"function\" !== typeof n) {\n            return r(f, d, e, h, p(n));\n          }\n          if (!n) {\n            return new g(\"Invalid \" + d + \" `\" + e + \"` key `\" + h + \"` supplied to `\" + f + \"`.\\nBad object: \" + JSON.stringify(b[c], null, \"  \") + \"\\nValid keys: \" + JSON.stringify(Object.keys(a), null, \"  \"));\n          }\n          if (n = n(m, h, f, d, e + \".\" + h, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n            return n;\n          }\n        }\n        return null;\n      });\n    }};\n    g.prototype = Error.prototype;\n    n.checkPropTypes = K;\n    n.resetWarningCache = K.resetWarningCache;\n    return n.PropTypes = n;\n  }, l = C(function(a) {\n    a.exports = Ma(ha.isElement, !0);\n  }), T = t.createContext(), Na = Object.assign || function(a) {\n    for (var b = 1; b < arguments.length; b++) {\n      var c = arguments[b], g;\n      for (g in c) {\n        Object.prototype.hasOwnProperty.call(c, g) && (a[g] = c[g]);\n      }\n    }\n    return a;\n  }, Oa = {border:0, clip:\"rect(0 0 0 0)\", height:\"1px\", width:\"1px\", margin:\"-1px\", padding:0, overflow:\"hidden\", position:\"absolute\"}, G = function(a) {\n    return N.createElement(\"div\", Na({style:Oa}, a));\n  }, ja = C(function(a) {\n    (function(b, c) {\n      a.exports = c();\n    })(Da, function() {\n      function a(a) {\n        if (!a) {\n          return !0;\n        }\n        if (!d(a) || 0 !== a.length) {\n          for (var b in a) {\n            if (p.call(a, b)) {\n              return !1;\n            }\n          }\n        }\n        return !0;\n      }\n      function c(a) {\n        return \"number\" === typeof a || \"[object Number]\" === t.call(a);\n      }\n      function g(a) {\n        return \"string\" === typeof a || \"[object String]\" === t.call(a);\n      }\n      function d(a) {\n        return \"object\" === typeof a && \"number\" === typeof a.length && \"[object Array]\" === t.call(a);\n      }\n      function h(a) {\n        var b = parseInt(a);\n        return b.toString() === a ? b : a;\n      }\n      function l(b, d, e, k) {\n        c(d) && (d = [d]);\n        if (a(d)) {\n          return b;\n        }\n        if (g(d)) {\n          return l(b, d.split(\".\"), e, k);\n        }\n        var f = h(d[0]);\n        if (1 === d.length) {\n          return d = b[f], void 0 !== d && k || (b[f] = e), d;\n        }\n        void 0 === b[f] && (c(f) ? b[f] = [] : b[f] = {});\n        return l(b[f], d.slice(1), e, k);\n      }\n      function k(b, e) {\n        c(e) && (e = [e]);\n        if (!a(b)) {\n          if (a(e)) {\n            return b;\n          }\n          if (g(e)) {\n            return k(b, e.split(\".\"));\n          }\n          var f = h(e[0]), n = b[f];\n          if (1 === e.length) {\n            void 0 !== n && (d(b) ? b.splice(f, 1) : delete b[f]);\n          } else {\n            if (void 0 !== b[f]) {\n              return k(b[f], e.slice(1));\n            }\n          }\n          return b;\n        }\n      }\n      var t = Object.prototype.toString, p = Object.prototype.hasOwnProperty, q = {ensureExists:function(a, b, c) {\n        return l(a, b, c, !0);\n      }, set:function(a, b, c, d) {\n        return l(a, b, c, d);\n      }, insert:function(a, b, c, e) {\n        var f = q.get(a, b);\n        e = ~~e;\n        d(f) || (f = [], q.set(a, b, f));\n        f.splice(e, 0, c);\n      }, empty:function(b, e) {\n        if (a(e)) {\n          return b;\n        }\n        if (!a(b)) {\n          var f, h;\n          if (!(f = q.get(b, e))) {\n            return b;\n          }\n          if (g(f)) {\n            return q.set(b, e, \"\");\n          }\n          if (\"boolean\" === typeof f || \"[object Boolean]\" === t.call(f)) {\n            return q.set(b, e, !1);\n          }\n          if (c(f)) {\n            return q.set(b, e, 0);\n          }\n          if (d(f)) {\n            f.length = 0;\n          } else {\n            if (\"object\" === typeof f && \"[object Object]\" === t.call(f)) {\n              for (h in f) {\n                p.call(f, h) && delete f[h];\n              }\n            } else {\n              return q.set(b, e, null);\n            }\n          }\n        }\n      }, push:function(a, b) {\n        var c = q.get(a, b);\n        d(c) || (c = [], q.set(a, b, c));\n        c.push.apply(c, Array.prototype.slice.call(arguments, 2));\n      }, coalesce:function(a, b, c) {\n        for (var d, e = 0, f = b.length; e < f; e++) {\n          if (void 0 !== (d = q.get(a, b[e]))) {\n            return d;\n          }\n        }\n        return c;\n      }, get:function(b, d, e) {\n        c(d) && (d = [d]);\n        if (a(d)) {\n          return b;\n        }\n        if (a(b)) {\n          return e;\n        }\n        if (g(d)) {\n          return q.get(b, d.split(\".\"), e);\n        }\n        var f = h(d[0]);\n        return 1 === d.length ? void 0 === b[f] ? e : b[f] : q.get(b[f], d.slice(1), e);\n      }, del:function(a, b) {\n        return k(a, b);\n      }};\n      return q;\n    });\n  });\n  var ka = function(a) {\n    return function(b) {\n      return typeof b === a;\n    };\n  };\n  var Pa = function(a, b) {\n    var c = 1, g = b || function(a, b) {\n      return b;\n    };\n    \"-\" === a[0] && (c = -1, a = a.substr(1));\n    return function(b, e) {\n      var d;\n      b = g(a, ja.get(b, a));\n      e = g(a, ja.get(e, a));\n      b < e && (d = -1);\n      b > e && (d = 1);\n      b === e && (d = 0);\n      return d * c;\n    };\n  };\n  var Y = function() {\n    var a = Array.prototype.slice.call(arguments), b = a.filter(ka(\"string\")), c = a.filter(ka(\"function\"))[0];\n    return function(a, d) {\n      for (var e = b.length, g = 0, k = 0; 0 === g && k < e;) {\n        g = Pa(b[k], c)(a, d), k++;\n      }\n      return g;\n    };\n  };\n  let Qa = \"B kB MB GB TB PB EB ZB YB\".split(\" \"), Ra = \"B kiB MiB GiB TiB PiB EiB ZiB YiB\".split(\" \"), Sa = \"b kbit Mbit Gbit Tbit Pbit Ebit Zbit Ybit\".split(\" \"), Ta = \"b kibit Mibit Gibit Tibit Pibit Eibit Zibit Yibit\".split(\" \"), la = (a, b, c) => {\n    let e = a;\n    if (\"string\" === typeof b || Array.isArray(b)) {\n      e = a.toLocaleString(b, c);\n    } else {\n      if (!0 === b || void 0 !== c) {\n        e = a.toLocaleString(void 0, c);\n      }\n    }\n    return e;\n  };\n  var Z = (a, b) => {\n    if (!Number.isFinite(a)) {\n      throw new TypeError(`Expected a finite number, got ${typeof a}: ${a}`);\n    }\n    b = Object.assign({bits:!1, binary:!1}, b);\n    let c = b.bits ? b.binary ? Ta : Sa : b.binary ? Ra : Qa;\n    if (b.signed && 0 === a) {\n      return ` 0 ${c[0]}`;\n    }\n    var g = 0 > a;\n    let d = g ? \"-\" : b.signed ? \"+\" : \"\";\n    g && (a = -a);\n    let h;\n    void 0 !== b.minimumFractionDigits && (h = {minimumFractionDigits:b.minimumFractionDigits});\n    void 0 !== b.maximumFractionDigits && (h = Object.assign({maximumFractionDigits:b.maximumFractionDigits}, h));\n    if (1 > a) {\n      return a = la(a, b.locale, h), d + a + \" \" + c[0];\n    }\n    g = Math.min(Math.floor(b.binary ? Math.log(a) / Math.log(1024) : Math.log10(a) / 3), c.length - 1);\n    a /= Math.pow(b.binary ? 1024 : 1000, g);\n    h || (a = a.toPrecision(3));\n    a = la(Number(a), b.locale, h);\n    return d + a + \" \" + c[g];\n  }, W = {color:void 0, size:void 0, className:void 0, style:void 0, attr:void 0}, V = t.createContext && t.createContext(W), x = function() {\n    x = Object.assign || function(a) {\n      for (var b, c = 1, g = arguments.length; c < g; c++) {\n        b = arguments[c];\n        for (var d in b) {\n          Object.prototype.hasOwnProperty.call(b, d) && (a[d] = b[d]);\n        }\n      }\n      return a;\n    };\n    return x.apply(this, arguments);\n  }, P = {color:\"#0076ff\", textDecoration:\"none\", \":hover\":{textDecoration:\"underline\"}}, v = {paddingTop:6, paddingRight:3, paddingBottom:6, paddingLeft:3, borderTop:\"1px solid #eaecef\"}, O = z({}, v, {color:\"#424242\", width:17, paddingRight:2, paddingLeft:10, \"@media (max-width: 700px)\":{paddingLeft:20}}), Q = z({}, v, {textAlign:\"right\", paddingRight:10, \"@media (max-width: 700px)\":{paddingRight:20}});\n  X.propTypes = {path:l.string.isRequired, details:l.objectOf(l.shape({path:l.string.isRequired, type:l.oneOf([\"directory\", \"file\"]).isRequired, contentType:l.string, integrity:l.string, size:l.number})).isRequired};\n  aa.propTypes = {path:l.string.isRequired, details:l.shape({contentType:l.string.isRequired, highlights:l.arrayOf(l.string), uri:l.string, integrity:l.string.isRequired, language:l.string.isRequired, size:l.number.isRequired}).isRequired};\n  var Ba = c.css(ca(), '\\nfont-family: -apple-system,\\n  BlinkMacSystemFont,\\n  \"Segoe UI\",\\n  \"Roboto\",\\n  \"Oxygen\",\\n  \"Ubuntu\",\\n  \"Cantarell\",\\n  \"Fira Sans\",\\n  \"Droid Sans\",\\n  \"Helvetica Neue\",\\n  sans-serif;\\n', \"\\nfont-family: Menlo,\\n  Monaco,\\n  Lucida Console,\\n  Liberation Mono,\\n  DejaVu Sans Mono,\\n  Bitstream Vera Sans Mono,\\n  Courier New,\\n  monospace;\\n\"), Ca = c.css(ba()), ea = {color:\"#0076ff\", textDecoration:\"none\", \":hover\":{textDecoration:\"underline\"}}, Ua = l.shape({path:l.string.isRequired, \n  type:l.oneOf([\"directory\", \"file\"]).isRequired, details:l.object.isRequired});\n  da.propTypes = {packageName:l.string.isRequired, packageVersion:l.string.isRequired, availableVersions:l.arrayOf(l.string), filename:l.string.isRequired, target:Ua.isRequired};\n  y.hydrate(N.createElement(da, window.__DATA__ || {}), document.getElementById(\"root\"));\n})(React, ReactDOM, emotionCore);\n\n"}]},{"main":[{"format":"iife","globalImports":["react","react-dom","@emotion/core"],"url":"/_client/main-ed1df927.js","code":"'use strict';\n(function(n, w, c) {\n  function z() {\n    z = Object.assign || function(a) {\n      for (var b = 1; b < arguments.length; b++) {\n        var d = arguments[b], f;\n        for (f in d) {\n          Object.prototype.hasOwnProperty.call(d, f) && (a[f] = d[f]);\n        }\n      }\n      return a;\n    };\n    return z.apply(this, arguments);\n  }\n  function ka(a, b) {\n    b || (b = a.slice(0));\n    a.raw = b;\n    return a;\n  }\n  function F(a, b) {\n    return b = {exports:{}}, a(b, b.exports), b.exports;\n  }\n  function G(a, b, d, f, c) {\n    for (var e in a) {\n      if (la(a, e)) {\n        try {\n          if (\"function\" !== typeof a[e]) {\n            var p = Error((f || \"React class\") + \": \" + d + \" type `\" + e + \"` is invalid; it must be a function, usually from the `prop-types` package, but received `\" + typeof a[e] + \"`.This often happens because of typos such as `PropTypes.function` instead of `PropTypes.func`.\");\n            p.name = \"Invariant Violation\";\n            throw p;\n          }\n          var k = a[e](b, e, f, d, null, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n        } catch (l) {\n          k = l;\n        }\n        !k || k instanceof Error || H((f || \"React class\") + \": type specification of \" + d + \" `\" + e + \"` is invalid; the type checker function must return `null` or an `Error` but returned a \" + typeof k + \". You may have forgotten to pass an argument to the type checker creator (arrayOf, instanceOf, objectOf, oneOf, oneOfType, and shape all require an argument).\");\n        if (k instanceof Error && !(k.message in I)) {\n          I[k.message] = !0;\n          var x = c ? c() : \"\";\n          H(\"Failed \" + d + \" type: \" + k.message + (null != x ? x : \"\"));\n        }\n      }\n    }\n  }\n  function A() {\n    return null;\n  }\n  function ma(a, b) {\n    if (null === b) {\n      return null;\n    }\n    var d;\n    if (0 === a.length) {\n      return a = new Date(0), a.setUTCFullYear(b), a;\n    }\n    if (d = na.exec(a)) {\n      a = new Date(0);\n      var c = parseInt(d[1], 10) - 1;\n      a.setUTCFullYear(b, c);\n      return a;\n    }\n    return (d = oa.exec(a)) ? (a = new Date(0), d = parseInt(d[1], 10), a.setUTCFullYear(b, 0, d), a) : (d = pa.exec(a)) ? (a = new Date(0), c = parseInt(d[1], 10) - 1, d = parseInt(d[2], 10), a.setUTCFullYear(b, c, d), a) : (d = qa.exec(a)) ? (a = parseInt(d[1], 10) - 1, N(b, a)) : (d = ra.exec(a)) ? (a = parseInt(d[1], 10) - 1, d = parseInt(d[2], 10) - 1, N(b, a, d)) : null;\n  }\n  function sa(a) {\n    var b;\n    if (b = ta.exec(a)) {\n      return a = parseFloat(b[1].replace(\",\", \".\")), a % 24 * 3600000;\n    }\n    if (b = ua.exec(a)) {\n      a = parseInt(b[1], 10);\n      var d = parseFloat(b[2].replace(\",\", \".\"));\n      return a % 24 * 3600000 + 60000 * d;\n    }\n    return (b = va.exec(a)) ? (a = parseInt(b[1], 10), d = parseInt(b[2], 10), b = parseFloat(b[3].replace(\",\", \".\")), a % 24 * 3600000 + 60000 * d + 1000 * b) : null;\n  }\n  function wa(a) {\n    var b;\n    return (b = xa.exec(a)) ? 0 : (b = ya.exec(a)) ? (a = 60 * parseInt(b[2], 10), \"+\" === b[1] ? -a : a) : (b = za.exec(a)) ? (a = 60 * parseInt(b[2], 10) + parseInt(b[3], 10), \"+\" === b[1] ? -a : a) : 0;\n  }\n  function N(a, b, d) {\n    b = b || 0;\n    d = d || 0;\n    var c = new Date(0);\n    c.setUTCFullYear(a, 0, 4);\n    a = c.getUTCDay() || 7;\n    b = 7 * b + d + 1 - a;\n    c.setUTCDate(c.getUTCDate() + b);\n    return c;\n  }\n  function Aa(a) {\n    var b = a % 100;\n    if (20 < b || 10 > b) {\n      switch(b % 10) {\n        case 1:\n          return a + \"st\";\n        case 2:\n          return a + \"nd\";\n        case 3:\n          return a + \"rd\";\n      }\n    }\n    return a + \"th\";\n  }\n  function Ba(a, b, d) {\n    var c = a.match(d), e = c.length;\n    for (a = 0; a < e; a++) {\n      d = b[c[a]] || J[c[a]], c[a] = d ? d : Ca(c[a]);\n    }\n    return function(a) {\n      for (var b = \"\", d = 0; d < e; d++) {\n        b = c[d] instanceof Function ? b + c[d](a, J) : b + c[d];\n      }\n      return b;\n    };\n  }\n  function Ca(a) {\n    return a.match(/\\[[\\s\\S]/) ? a.replace(/^\\[|]$/g, \"\") : a.replace(/\\\\/g, \"\");\n  }\n  function O(a, b) {\n    b = b || \"\";\n    var d = Math.abs(a), c = d % 60;\n    return (0 < a ? \"-\" : \"+\") + m(Math.floor(d / 60), 2) + b + m(c, 2);\n  }\n  function m(a, b) {\n    for (a = Math.abs(a).toString(); a.length < b;) {\n      a = \"0\" + a;\n    }\n    return a;\n  }\n  function K(a) {\n    a = String(a).split(\"\");\n    for (var b = []; a.length;) {\n      b.unshift(a.splice(-3).join(\"\"));\n    }\n    return b.join(\",\");\n  }\n  function Da(a, b) {\n    void 0 === b && (b = 1);\n    return (100 * a).toPrecision(b + 2);\n  }\n  function P(a) {\n    return a && a.map(function(a, d) {\n      return n.createElement(a.tag, v({key:d}, a.attr), P(a.child));\n    });\n  }\n  function Q(a) {\n    return function(b) {\n      return n.createElement(Ea, v({attr:v({}, a.attr)}, b), P(a.child));\n    };\n  }\n  function Ea(a) {\n    var b = function(b) {\n      var c = a.size || b.size || \"1em\";\n      if (b.className) {\n        var d = b.className;\n      }\n      a.className && (d = (d ? d + \" \" : \"\") + a.className);\n      var g = a.attr, p = a.title, k = [\"attr\", \"title\"], x = {}, l;\n      for (l in a) {\n        Object.prototype.hasOwnProperty.call(a, l) && 0 > k.indexOf(l) && (x[l] = a[l]);\n      }\n      if (null != a && \"function\" === typeof Object.getOwnPropertySymbols) {\n        var h = 0;\n        for (l = Object.getOwnPropertySymbols(a); h < l.length; h++) {\n          0 > k.indexOf(l[h]) && (x[l[h]] = a[l[h]]);\n        }\n      }\n      return n.createElement(\"svg\", v({stroke:\"currentColor\", fill:\"currentColor\", strokeWidth:\"0\"}, b.attr, g, x, {className:d, style:v({color:a.color || b.color}, b.style, a.style), height:c, width:c, xmlns:\"http://www.w3.org/2000/svg\"}), p && n.createElement(\"title\", null, p), a.children);\n    };\n    return void 0 !== R ? n.createElement(R.Consumer, null, function(a) {\n      return b(a);\n    }) : b(S);\n  }\n  function Fa(a) {\n    return Q({tag:\"svg\", attr:{viewBox:\"0 0 496 512\"}, child:[{tag:\"path\", attr:{d:\"M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z\"}}]})(a);\n  }\n  function Ga(a) {\n    return Q({tag:\"svg\", attr:{viewBox:\"0 0 512 512\"}, child:[{tag:\"path\", attr:{d:\"M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z\"}}]})(a);\n  }\n  function T(a, b) {\n    var d = b.css;\n    var f = [\"css\"];\n    if (null == b) {\n      b = {};\n    } else {\n      var e = {}, g = Object.keys(b), p;\n      for (p = 0; p < g.length; p++) {\n        var k = g[p];\n        0 <= f.indexOf(k) || (e[k] = b[k]);\n      }\n      b = e;\n    }\n    return c.jsx(a, z({css:z({}, d, {verticalAlign:\"text-bottom\"})}, b));\n  }\n  function Ha(a) {\n    return T(Ga, a);\n  }\n  function Ia(a) {\n    return T(Fa, a);\n  }\n  function U() {\n    var a = ka([\"\\n  html {\\n    box-sizing: border-box;\\n  }\\n  *,\\n  *:before,\\n  *:after {\\n    box-sizing: inherit;\\n  }\\n\\n  html,\\n  body,\\n  #root {\\n    height: 100%;\\n    margin: 0;\\n  }\\n\\n  body {\\n    \", \"\\n    font-size: 16px;\\n    line-height: 1.5;\\n    background: white;\\n    color: black;\\n  }\\n\\n  code {\\n    \", \"\\n  }\\n\\n  dd,\\n  ul {\\n    margin-left: 0;\\n    padding-left: 25px;\\n  }\\n\\n  #root {\\n    display: flex;\\n    flex-direction: column;\\n  }\\n\"]);\n    U = function() {\n      return a;\n    };\n    return a;\n  }\n  function V(a) {\n    return c.jsx(\"div\", {css:{textAlign:\"center\", flex:\"1\"}}, a.children);\n  }\n  function W(a) {\n    return c.jsx(\"img\", z({}, a, {css:{maxWidth:\"90%\"}}));\n  }\n  function Ja(a) {\n    a = a.data.totals;\n    var b = q(a.since), d = q(a.until);\n    return c.jsx(\"p\", null, \"From \", c.jsx(\"strong\", null, X(b, \"MMM D\")), \" to\", \" \", c.jsx(\"strong\", null, X(d, \"MMM D\")), \" unpkg served\", \" \", c.jsx(\"strong\", null, K(a.requests.all)), \" requests and a total of \", c.jsx(\"strong\", null, Y(a.bandwidth.all)), \" of data to\", \" \", c.jsx(\"strong\", null, K(a.uniques.all)), \" unique visitors,\", \" \", c.jsx(\"strong\", null, Da(a.requests.cached / a.requests.all, 2), \"%\"), \" \", \"of which were served from the cache.\");\n  }\n  function Z() {\n    var a = n.useState(\"object\" === typeof window && window.localStorage && window.localStorage.savedStats ? JSON.parse(window.localStorage.savedStats) : null)[0], b = !(!a || a.error);\n    return c.jsx(n.Fragment, null, c.jsx(\"div\", {css:{maxWidth:740, margin:\"0 auto\", padding:\"0 20px\"}}, c.jsx(c.Global, {styles:Ka}), c.jsx(\"header\", null, c.jsx(\"h1\", {css:{textTransform:\"uppercase\", textAlign:\"center\", fontSize:\"5em\"}}, \"unpkg\"), c.jsx(\"p\", null, \"unpkg is a fast, global content delivery network for everything on\", \" \", c.jsx(\"a\", {href:\"https://www.npmjs.com/\", css:h}, \"npm\"), \". Use it to quickly and easily load any file from any package using a URL like:\"), c.jsx(\"div\", {css:{textAlign:\"center\", \n    backgroundColor:\"#eee\", margin:\"2em 0\", padding:\"5px 0\"}}, \"unpkg.com/:package@:version/:file\"), b && c.jsx(Ja, {data:a})), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"examples\"}, \"Examples\"), c.jsx(\"p\", null, \"Using a fixed version:\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, c.jsx(\"a\", {title:\"react.production.min.js\", href:\"/react@16.7.0/umd/react.production.min.js\", css:h}, \"unpkg.com/react@16.7.0/umd/react.production.min.js\")), c.jsx(\"li\", null, c.jsx(\"a\", {title:\"react-dom.production.min.js\", href:\"/react-dom@16.7.0/umd/react-dom.production.min.js\", \n    css:h}, \"unpkg.com/react-dom@16.7.0/umd/react-dom.production.min.js\"))), c.jsx(\"p\", null, \"You may also use a\", \" \", c.jsx(\"a\", {title:\"semver\", href:\"https://docs.npmjs.com/misc/semver\", css:h}, \"semver range\"), \" \", \"or a\", \" \", c.jsx(\"a\", {title:\"tags\", href:\"https://docs.npmjs.com/cli/dist-tag\", css:h}, \"tag\"), \" \", \"instead of a fixed version number, or omit the version/tag entirely to use the \", c.jsx(\"code\", null, \"latest\"), \" tag.\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, c.jsx(\"a\", {title:\"react.production.min.js\", \n    href:\"/react@^16/umd/react.production.min.js\", css:h}, \"unpkg.com/react@^16/umd/react.production.min.js\")), c.jsx(\"li\", null, c.jsx(\"a\", {title:\"react.production.min.js\", href:\"/react/umd/react.production.min.js\", css:h}, \"unpkg.com/react/umd/react.production.min.js\"))), c.jsx(\"p\", null, \"If you omit the file path (i.e. use a \\u201cbare\\u201d URL), unpkg will serve the file specified by the \", c.jsx(\"code\", null, \"unpkg\"), \" field in\", \" \", c.jsx(\"code\", null, \"package.json\"), \", or fall back to \", \n    c.jsx(\"code\", null, \"main\"), \".\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, c.jsx(\"a\", {title:\"jQuery\", href:\"/jquery\", css:h}, \"unpkg.com/jquery\")), c.jsx(\"li\", null, c.jsx(\"a\", {title:\"Three.js\", href:\"/three\", css:h}, \"unpkg.com/three\"))), c.jsx(\"p\", null, \"Append a \", c.jsx(\"code\", null, \"/\"), \" at the end of a URL to view a listing of all the files in a package.\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, c.jsx(\"a\", {title:\"Index of the react package\", href:\"/react/\", css:h}, \"unpkg.com/react/\")), \n    c.jsx(\"li\", null, c.jsx(\"a\", {title:\"Index of the react-router package\", href:\"/react-router/\", css:h}, \"unpkg.com/react-router/\"))), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"query-params\"}, \"Query Parameters\"), c.jsx(\"dl\", null, c.jsx(\"dt\", null, c.jsx(\"code\", null, \"?meta\")), c.jsx(\"dd\", null, \"Return metadata about any file in a package as JSON (e.g.\", c.jsx(\"code\", null, \"/any/file?meta\"), \")\"), c.jsx(\"dt\", null, c.jsx(\"code\", null, \"?module\")), c.jsx(\"dd\", null, \"Expands all\", \" \", c.jsx(\"a\", \n    {title:\"bare import specifiers\", href:\"https://html.spec.whatwg.org/multipage/webappapis.html#resolve-a-module-specifier\", css:h}, \"\\u201cbare\\u201d \", c.jsx(\"code\", null, \"import\"), \" specifiers\"), \" \", \"in JavaScript modules to unpkg URLs. This feature is\", \" \", c.jsx(\"em\", null, \"very experimental\"))), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"cache-behavior\"}, \"Cache Behavior\"), c.jsx(\"p\", null, \"The CDN caches files based on their permanent URL, which includes the npm package version. This works because npm does not allow package authors to overwrite a package that has already been published with a different one at the same version number.\"), \n    c.jsx(\"p\", null, \"Browsers are instructed (via the \", c.jsx(\"code\", null, \"Cache-Control\"), \" header) to cache assets indefinitely (1 year).\"), c.jsx(\"p\", null, \"URLs that do not specify a package version number redirect to one that does. This is the \", c.jsx(\"code\", null, \"latest\"), \" version when no version is specified, or the \", c.jsx(\"code\", null, \"maxSatisfying\"), \" version when a\", \" \", c.jsx(\"a\", {title:\"semver\", href:\"https://github.com/npm/node-semver\", css:h}, \"semver version\"), \" \", \n    \"is given. Redirects are cached for 10 minutes at the CDN, 1 minute in browsers.\"), c.jsx(\"p\", null, \"If you want users to be able to use the latest version when you cut a new release, the best policy is to put the version number in the URL directly in your installation instructions. This will also load more quickly because we won't have to resolve the latest version and redirect them.\"), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"workflow\"}, \"Workflow\"), c.jsx(\"p\", null, \"For npm package authors, unpkg relieves the burden of publishing your code to a CDN in addition to the npm registry. All you need to do is include your\", \n    \" \", c.jsx(\"a\", {title:\"UMD\", href:\"https://github.com/umdjs/umd\", css:h}, \"UMD\"), \" \", \"build in your npm package (not your repo, that's different!).\"), c.jsx(\"p\", null, \"You can do this easily using the following setup:\"), c.jsx(\"ul\", null, c.jsx(\"li\", null, \"Add the \", c.jsx(\"code\", null, \"umd\"), \" (or \", c.jsx(\"code\", null, \"dist\"), \") directory to your\", \" \", c.jsx(\"code\", null, \".gitignore\"), \" file\"), c.jsx(\"li\", null, \"Add the \", c.jsx(\"code\", null, \"umd\"), \" directory to your\", \" \", \n    c.jsx(\"a\", {title:\"package.json files array\", href:\"https://docs.npmjs.com/files/package.json#files\", css:h}, \"files array\"), \" \", \"in \", c.jsx(\"code\", null, \"package.json\")), c.jsx(\"li\", null, \"Use a build script to generate your UMD build in the\", \" \", c.jsx(\"code\", null, \"umd\"), \" directory when you publish\")), c.jsx(\"p\", null, \"That's it! Now when you \", c.jsx(\"code\", null, \"npm publish\"), \" you'll have a version available on unpkg as well.\"), c.jsx(\"h3\", {css:{fontSize:\"1.6em\"}, id:\"about\"}, \n    \"About\"), c.jsx(\"p\", null, \"unpkg is an\", \" \", c.jsx(\"a\", {title:\"unpkg on GitHub\", href:\"https://github.com/unpkg\", css:h}, \"open source\"), \" \", \"project built and maintained by\", \" \", c.jsx(\"a\", {title:\"mjackson on Twitter\", href:\"https://twitter.com/mjackson\", css:h}, \"Michael Jackson\"), \". unpkg is not affiliated with or supported by npm, Inc. in any way. Please do not contact npm for help with unpkg. Instead, please reach out to\", \" \", c.jsx(\"a\", {title:\"unpkg on Twitter\", href:\"https://twitter.com/unpkg\", \n    css:h}, \"@unpkg\"), \" \", \"with any questions or concerns.\"), c.jsx(\"p\", null, \"The unpkg CDN is powered by\", \" \", c.jsx(\"a\", {title:\"Cloudflare\", href:\"https://www.cloudflare.com\", css:h}, \"Cloudflare\"), \", one of the world's largest and fastest cloud network platforms.\", \" \", b && c.jsx(\"span\", null, \"In the past month, Cloudflare served over\", \" \", c.jsx(\"strong\", null, Y(a.totals.bandwidth.all)), \" to\", \" \", c.jsx(\"strong\", null, K(a.totals.uniques.all)), \" unique unpkg users all over the world.\")), \n    c.jsx(\"div\", {css:{margin:\"4em 0\", display:\"flex\", justifyContent:\"center\"}}, c.jsx(V, null, c.jsx(\"a\", {title:\"Cloudflare\", href:\"https://www.cloudflare.com\"}, c.jsx(W, {src:\"/_client/46bc46bc8accec6a.png\", height:\"100\"})))), c.jsx(\"p\", null, \"The origin servers for unpkg are powered by\", \" \", c.jsx(\"a\", {title:\"Google Cloud\", href:\"https://cloud.google.com/\", css:h}, \"Google Cloud\"), \" \", \"and made possible by a generous donation from the\", \" \", c.jsx(\"a\", {title:\"Angular\", href:\"https://angular.io\", \n    css:h}, \"Angular web framework\"), \", one of the world's most popular libraries for building incredible user experiences on both desktop and mobile.\"), c.jsx(\"div\", {css:{margin:\"4em 0 0\", display:\"flex\", justifyContent:\"center\"}}, c.jsx(V, null, c.jsx(\"a\", {title:\"Angular\", href:\"https://angular.io\"}, c.jsx(W, {src:\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPoAAAD6CAMAAAC/MqoPAAAAz1BMVEUAAADUBy/DDi7dAzDdAzDdAzDdAzDDDi7DDi7DDi7dAzDdAzDdAzDDDi7DDi7DDi7dAzDdAzDdAzDDDi7DDi7DDi7dAzDdAzDDDi7DDi7dAzDdAzDDDi7DDi7dAzDDDi7fEz3HHTvugZjhh5f97/L78PLqYn7////aaHz74OX44eXmQmTSSmL3wMvww8vhI0rLLEjyobHppbHdAzDDDi7jMlfOO1XoUnHWWW/50Nj00tjscYvdd4nwkaTllqT0sL7stL7hRGPXBjDWBi/FDS4+JsiBAAAARXRSTlMAMDAwj9///9+PIHDPz3AgEGC/v2AQUK+vUJ/v75+AgP////////////////////////9AQP//////////////////r6+TKVt1AAAH7ElEQVR4AezUtaHDUBTA0I9mZtx/zHDMWOY+nQ3U6AsAAAAAAAAAAAAA8Em+f9Ts/v3713TDVK7esh3tRr9xPV+d7iCMtCf9KU5SJcKzXOvonaIU313VmjZK7zRtKXtsY/qI1OlZ9rN7Jb2rlza9IHS0JfoSV9D0wlxboa8oElljO5HeTU/C2E6kC5heN7Yz6QKm143tTLqA6QXrYzub/pxeKmFsV2buQllxZQ3DcJZ1jwuMS7AYGmx84Jy97/+exjNGWLv+zvst+O7gKfnrha6Kna4/ethhq9wUvdIf99G7EV8407xp1zpHevTuff8JrqN//3H/8PgPG0/njx5/2Hg6f/T4w8bTj/bo3ahKNWjdXpC76ty7B/9vMXz9Qbic+0cTOGz2JanRChw94LC55svyvPDNd5VH7+zrQQc2zPORJ/bi5ekhD5t94/zLJoAcOHrEYTNs+pU+M/CAowccNmBl/m1zD646evxhQ7f4Tl96cvzRW1WHjVs3/7HfswY6emv+v0Vy/Yo+oOnUP5rVT1F8SUVPeTnz8/bMaZZV8ipr+J1GDSeiD3/RRyJ61HTW+2bImWoTifxFY3pLQp/+Tp9J6G2eDuZMtflx0mMFffEnfamgd0g6nzNk1vD0R8qcUWZN86BdKXNGmTXr5jknzBlp1gC/4YQ5I82aqPkuZDkjzZprAL0lyxlp1rQB+mNY/iqv3WuY/gSgx6qc0WZNB6DflDWstGbvAPSVKGfEWbM+Ono32UdPezAdmCZn1FkTERPlDJ81PP0WKH+TX7K3oPw2Qm8pckadNW2Efi7IGXnWXEfosSBn5FnTQej3+ZzRZ80DhL7ic0afNWuEfsbnjD5rTiNkfM7osyZi9pzOGX3WvIDoLTpn9FnTJul8zvBZw9NjOmf0WdNh6XzOLJZs1vD0R6qcGU9UWfMUoq9EOfPO+feirFlD9HuinMmcL4CsYZ9e+Kb5sGtMus730nxnH4mioXYhyZmNc95vJVlzDaO3JA1bfqXPJTXbxuiPFTkzdV/pfqbImicYPVa8ML75Tn+reHvsYPSbgpwZuu90PxJkzR2MvhLkTL+iDwRZsz4a+qZG163ovXx3W4AOjc+ZhavofslnTcQNz5l8/Is+ybms4em36Jx5537R/Xs6a26D9BadM9nv9ILOmjZIfwbnTNL9nd5L4ax5CdJjOGcW7ne6X8JZ0wHp9+HHpvJP+hx+hHoA0ldszkzdn3Q/Y7NmDdLP2JzJ/qYXbNacRuDQnBnufrVghGZNRA7Nmf4ufUBlDU9vkY9N5S59Tj5CtVk6mDMLt0v3SyhreHoMPjaN6+gT8BGqw9K5nBm6OrofAVmD0YEHmP/VeLJ6epHv7v/804t9Kyxnkm49vZdiWbNG6Tewhl24erpfYjV7N0JH5Uxe7qPPcyprInYXzAtjle+79PqQH/BPL+a1oJzJ9tMLKGvaMP0xkzNDt5/uR0zWPIHpsZ3+ri7f6+n7Q/69nd6h6UjO5OVl9HkOZA1PXyE5s3CX0f0SyZo1TSdyJh9fTp/kQNbg9IjImaG7nO5HRNZE9Iicyf6LXgBZw9NvWXMG2wB9etE3zZCjj/RFQz7AZDm4wvj0Qi825gw4W9Z0cPp9W86gm9ieXuitbDmDzpQ1a5x+ZsoZeHP+6cUye85ws2RNdEh6N8fXOyi9pc8ZImvaB6UnPD09KD3W5wyRNR09nW9YpmYV9Ed8zlg24Z9e8KaZaugzumgMu6HPGSJr7kaC6XOGyJpIsQs+Z/isuSaht4Jzpj+u3z+TPRsEZ01bQn8cmjOJ27N/9wrS0Kx5IqHHoTmzsdO3oVnT0dMtOVPa6XN71ijpq8CcmTo73c8Cs2atpxtyJguhF/asEdKjsJxJXAjdp2FZE2kWljObMPrWnjVC+q2gnCnD6HN71tBPL4am6RuOXEU3HroBXzTIA0xiOHIV3XjoUvLpxbA4IGcSF0r3aUDWdET0+wE5swmnbwOy5oGIvgr42FAZTp8HfK5oLaKf2XNm6sLpfmbPmtNINPvHhrIm9ML+uaJINXPOJK4J3afmrJHRW8aGzTfN6NvcWLNtHd362FQ2o8+tj1A6emz8duLUNaP7mfErjJ0D0DPDkTPQC+MjlI7+yJYziWtK96kta57K6Ctbzmya07e2rFnL6Ddsj01lc/rc9gh1N5LNlDNT15zuZ6asiXS7sDw2ZQS9sDxCXRPSW4acSRxB96kha9pC+mNDzmwY+taQNU+E9NjwKeiSoc8NH5fuXDW97NctcwzdF4O6za+avvrcnl3Y6A5DQRS+PzMzF5FUMO/139KSeJmONdLe08EIvsR29+e9Of3n1TkdyXt6kI1OvtPP00CbX12n3zZBNzw6Tr/MokTV0m36qo5SbTtO0/uHYAO8k79ulHfy143yTv66Ud6J183VO/G6uXonWDfeu1P56WdWN9478brhtZYlp6+a4VTVKTW9X4dbi1OJ6ed1/DwD78Tr5uqdeN1cvROvm6t34nVz9U68bq7eidfN1Tvxurl6J0A3h6rxb0yfELrxLTo/nd5ndDPwTj66AeOP359+YYfzDZffm74CWTfwTrxurt6J183VO/G6uXonXjdX78Tr5uqdeN1cvROvm6t3ctYNGN9+ffoAGG7XcPdy+t5aN+BxWvxjsat3InTz79E7PekWQPbeyV83qOG//7PI/mhZlmVZlmVZlmVZlmXZPZmSvHpA7pEOAAAAAElFTkSuQmCC\", \n    width:\"200\"}))))), c.jsx(\"footer\", {css:{marginTop:\"5rem\", background:\"black\", color:\"#aaa\"}}, c.jsx(\"div\", {css:{maxWidth:740, padding:\"10px 20px\", margin:\"0 auto\", display:\"flex\", flexDirection:\"row\", alignItems:\"center\", justifyContent:\"space-between\"}}, c.jsx(\"p\", null, \"\\u00a9 \", (new Date).getFullYear(), \" UNPKG\"), c.jsx(\"p\", {css:{fontSize:\"1.5rem\"}}, c.jsx(\"a\", {title:\"Twitter\", href:\"https://twitter.com/unpkg\", css:{color:\"#aaa\", display:\"inline-block\", \":hover\":{color:\"white\"}}}, c.jsx(Ha, \n    null)), c.jsx(\"a\", {title:\"GitHub\", href:\"https://github.com/mjackson/unpkg\", css:{color:\"#aaa\", display:\"inline-block\", marginLeft:\"1rem\", \":hover\":{color:\"white\"}}}, c.jsx(Ia, null))))));\n  }\n  var La = \"default\" in n ? n[\"default\"] : n;\n  w = w && Object.prototype.hasOwnProperty.call(w, \"default\") ? w[\"default\"] : w;\n  var Ra = F(function(a, b) {\n    (function() {\n      function a(a) {\n        if (\"object\" === typeof a && null !== a) {\n          var b = a.$$typeof;\n          switch(b) {\n            case g:\n              switch(a = a.type, a) {\n                case q:\n                case t:\n                case k:\n                case l:\n                case h:\n                case r:\n                  return a;\n                default:\n                  switch(a = a && a.$$typeof, a) {\n                    case n:\n                    case u:\n                    case B:\n                    case C:\n                    case m:\n                      return a;\n                    default:\n                      return b;\n                  }\n              }case p:\n              return b;\n          }\n        }\n      }\n      function c(b) {\n        return a(b) === t;\n      }\n      var e = \"function\" === typeof Symbol && Symbol.for, g = e ? Symbol.for(\"react.element\") : 60103, p = e ? Symbol.for(\"react.portal\") : 60106, k = e ? Symbol.for(\"react.fragment\") : 60107, h = e ? Symbol.for(\"react.strict_mode\") : 60108, l = e ? Symbol.for(\"react.profiler\") : 60114, m = e ? Symbol.for(\"react.provider\") : 60109, n = e ? Symbol.for(\"react.context\") : 60110, q = e ? Symbol.for(\"react.async_mode\") : 60111, t = e ? Symbol.for(\"react.concurrent_mode\") : 60111, u = e ? Symbol.for(\"react.forward_ref\") : \n      60112, r = e ? Symbol.for(\"react.suspense\") : 60113, Ma = e ? Symbol.for(\"react.suspense_list\") : 60120, C = e ? Symbol.for(\"react.memo\") : 60115, B = e ? Symbol.for(\"react.lazy\") : 60116, Na = e ? Symbol.for(\"react.block\") : 60121, Oa = e ? Symbol.for(\"react.fundamental\") : 60117, Pa = e ? Symbol.for(\"react.responder\") : 60118, Qa = e ? Symbol.for(\"react.scope\") : 60119, aa = !1;\n      b.AsyncMode = q;\n      b.ConcurrentMode = t;\n      b.ContextConsumer = n;\n      b.ContextProvider = m;\n      b.Element = g;\n      b.ForwardRef = u;\n      b.Fragment = k;\n      b.Lazy = B;\n      b.Memo = C;\n      b.Portal = p;\n      b.Profiler = l;\n      b.StrictMode = h;\n      b.Suspense = r;\n      b.isAsyncMode = function(b) {\n        aa || (aa = !0, console.warn(\"The ReactIs.isAsyncMode() alias has been deprecated, and will be removed in React 17+. Update your code to use ReactIs.isConcurrentMode() instead. It has the exact same API.\"));\n        return c(b) || a(b) === q;\n      };\n      b.isConcurrentMode = c;\n      b.isContextConsumer = function(b) {\n        return a(b) === n;\n      };\n      b.isContextProvider = function(b) {\n        return a(b) === m;\n      };\n      b.isElement = function(a) {\n        return \"object\" === typeof a && null !== a && a.$$typeof === g;\n      };\n      b.isForwardRef = function(b) {\n        return a(b) === u;\n      };\n      b.isFragment = function(b) {\n        return a(b) === k;\n      };\n      b.isLazy = function(b) {\n        return a(b) === B;\n      };\n      b.isMemo = function(b) {\n        return a(b) === C;\n      };\n      b.isPortal = function(b) {\n        return a(b) === p;\n      };\n      b.isProfiler = function(b) {\n        return a(b) === l;\n      };\n      b.isStrictMode = function(b) {\n        return a(b) === h;\n      };\n      b.isSuspense = function(b) {\n        return a(b) === r;\n      };\n      b.isValidElementType = function(a) {\n        return \"string\" === typeof a || \"function\" === typeof a || a === k || a === t || a === l || a === h || a === r || a === Ma || \"object\" === typeof a && null !== a && (a.$$typeof === B || a.$$typeof === C || a.$$typeof === m || a.$$typeof === n || a.$$typeof === u || a.$$typeof === Oa || a.$$typeof === Pa || a.$$typeof === Qa || a.$$typeof === Na);\n      };\n      b.typeOf = a;\n    })();\n  }), ba = F(function(a) {\n    a.exports = Ra;\n  }), ca = Object.getOwnPropertySymbols, Sa = Object.prototype.hasOwnProperty, Ta = Object.prototype.propertyIsEnumerable, Ua = function() {\n    try {\n      if (!Object.assign) {\n        return !1;\n      }\n      var a = new String(\"abc\");\n      a[5] = \"de\";\n      if (\"5\" === Object.getOwnPropertyNames(a)[0]) {\n        return !1;\n      }\n      var b = {};\n      for (a = 0; 10 > a; a++) {\n        b[\"_\" + String.fromCharCode(a)] = a;\n      }\n      if (\"0123456789\" !== Object.getOwnPropertyNames(b).map(function(a) {\n        return b[a];\n      }).join(\"\")) {\n        return !1;\n      }\n      var c = {};\n      \"abcdefghijklmnopqrst\".split(\"\").forEach(function(a) {\n        c[a] = a;\n      });\n      return \"abcdefghijklmnopqrst\" !== Object.keys(Object.assign({}, c)).join(\"\") ? !1 : !0;\n    } catch (f) {\n      return !1;\n    }\n  }() ? Object.assign : function(a, b) {\n    if (null === a || void 0 === a) {\n      throw new TypeError(\"Object.assign cannot be called with null or undefined\");\n    }\n    var c = Object(a);\n    for (var f, e = 1; e < arguments.length; e++) {\n      var g = Object(arguments[e]);\n      for (var p in g) {\n        Sa.call(g, p) && (c[p] = g[p]);\n      }\n      if (ca) {\n        f = ca(g);\n        for (var k = 0; k < f.length; k++) {\n          Ta.call(g, f[k]) && (c[f[k]] = g[f[k]]);\n        }\n      }\n    }\n    return c;\n  }, D = Function.call.bind(Object.prototype.hasOwnProperty), H = function() {\n  }, I = {}, la = D;\n  H = function(a) {\n    a = \"Warning: \" + a;\n    \"undefined\" !== typeof console && console.error(a);\n    try {\n      throw Error(a);\n    } catch (b) {\n    }\n  };\n  G.resetWarningCache = function() {\n    I = {};\n  };\n  var y = function() {\n  };\n  y = function(a) {\n    a = \"Warning: \" + a;\n    \"undefined\" !== typeof console && console.error(a);\n    try {\n      throw Error(a);\n    } catch (b) {\n    }\n  };\n  var Va = function(a, b) {\n    function c(a, b) {\n      return a === b ? 0 !== a || 1 / a === 1 / b : a !== a && b !== b;\n    }\n    function f(a, b) {\n      this.message = a;\n      this.data = b && \"object\" === typeof b ? b : {};\n      this.stack = \"\";\n    }\n    function e(a) {\n      function c(c, u, e, r, g, l, h) {\n        r = r || \"<<anonymous>>\";\n        l = l || e;\n        if (\"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\" !== h) {\n          if (b) {\n            throw c = Error(\"Calling PropTypes validators directly is not supported by the `prop-types` package. Use `PropTypes.checkPropTypes()` to call them. Read more at http://fb.me/use-check-prop-types\"), c.name = \"Invariant Violation\", c;\n          }\n          \"undefined\" !== typeof console && (h = r + \":\" + e, !d[h] && 3 > t && (y(\"You are manually calling a React.PropTypes validation function for the `\" + l + \"` prop on `\" + r + \"`. This is deprecated and will throw in the standalone `prop-types` package. You may be seeing this warning due to a third-party PropTypes library. See https://fb.me/react-warning-dont-call-proptypes for details.\"), d[h] = !0, t++));\n        }\n        return null == u[e] ? c ? null === u[e] ? new f(\"The \" + g + \" `\" + l + \"` is marked as required \" + (\"in `\" + r + \"`, but its value is `null`.\")) : new f(\"The \" + g + \" `\" + l + \"` is marked as required in \" + (\"`\" + r + \"`, but its value is `undefined`.\")) : null : a(u, e, r, g, l);\n      }\n      var d = {}, t = 0, e = c.bind(null, !1);\n      e.isRequired = c.bind(null, !0);\n      return e;\n    }\n    function g(a) {\n      return e(function(b, c, d, t, e, g) {\n        b = b[c];\n        return h(b) !== a ? (b = l(b), new f(\"Invalid \" + t + \" `\" + e + \"` of type \" + (\"`\" + b + \"` supplied to `\" + d + \"`, expected \") + (\"`\" + a + \"`.\"), {expectedType:a})) : null;\n      });\n    }\n    function p(a, b, c, d, e) {\n      return new f((a || \"React class\") + \": \" + b + \" type `\" + c + \".\" + d + \"` is invalid; it must be a function, usually from the `prop-types` package, but received `\" + e + \"`.\");\n    }\n    function k(b) {\n      switch(typeof b) {\n        case \"number\":\n        case \"string\":\n        case \"undefined\":\n          return !0;\n        case \"boolean\":\n          return !b;\n        case \"object\":\n          if (Array.isArray(b)) {\n            return b.every(k);\n          }\n          if (null === b || a(b)) {\n            return !0;\n          }\n          var c = b && (n && b[n] || b[\"@@iterator\"]);\n          var d = \"function\" === typeof c ? c : void 0;\n          if (d) {\n            if (c = d.call(b), d !== b.entries) {\n              for (; !(b = c.next()).done;) {\n                if (!k(b.value)) {\n                  return !1;\n                }\n              }\n            } else {\n              for (; !(b = c.next()).done;) {\n                if ((b = b.value) && !k(b[1])) {\n                  return !1;\n                }\n              }\n            }\n          } else {\n            return !1;\n          }\n          return !0;\n        default:\n          return !1;\n      }\n    }\n    function h(a) {\n      var b = typeof a;\n      return Array.isArray(a) ? \"array\" : a instanceof RegExp ? \"object\" : \"symbol\" === b || a && (\"Symbol\" === a[\"@@toStringTag\"] || \"function\" === typeof Symbol && a instanceof Symbol) ? \"symbol\" : b;\n    }\n    function l(a) {\n      if (\"undefined\" === typeof a || null === a) {\n        return \"\" + a;\n      }\n      var b = h(a);\n      if (\"object\" === b) {\n        if (a instanceof Date) {\n          return \"date\";\n        }\n        if (a instanceof RegExp) {\n          return \"regexp\";\n        }\n      }\n      return b;\n    }\n    function m(a) {\n      a = l(a);\n      switch(a) {\n        case \"array\":\n        case \"object\":\n          return \"an \" + a;\n        case \"boolean\":\n        case \"date\":\n        case \"regexp\":\n          return \"a \" + a;\n        default:\n          return a;\n      }\n    }\n    var n = \"function\" === typeof Symbol && Symbol.iterator, q = {array:g(\"array\"), bigint:g(\"bigint\"), bool:g(\"boolean\"), func:g(\"function\"), number:g(\"number\"), object:g(\"object\"), string:g(\"string\"), symbol:g(\"symbol\"), any:e(A), arrayOf:function(a) {\n      return e(function(b, c, d, e, t) {\n        if (\"function\" !== typeof a) {\n          return new f(\"Property `\" + t + \"` of component `\" + d + \"` has invalid PropType notation inside arrayOf.\");\n        }\n        b = b[c];\n        if (!Array.isArray(b)) {\n          return b = h(b), new f(\"Invalid \" + e + \" `\" + t + \"` of type \" + (\"`\" + b + \"` supplied to `\" + d + \"`, expected an array.\"));\n        }\n        for (c = 0; c < b.length; c++) {\n          var r = a(b, c, d, e, t + \"[\" + c + \"]\", \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n          if (r instanceof Error) {\n            return r;\n          }\n        }\n        return null;\n      });\n    }, element:function() {\n      return e(function(b, c, d, e, l) {\n        b = b[c];\n        return a(b) ? null : (b = h(b), new f(\"Invalid \" + e + \" `\" + l + \"` of type \" + (\"`\" + b + \"` supplied to `\" + d + \"`, expected a single ReactElement.\")));\n      });\n    }(), elementType:function() {\n      return e(function(a, b, c, d, e) {\n        a = a[b];\n        return ba.isValidElementType(a) ? null : (a = h(a), new f(\"Invalid \" + d + \" `\" + e + \"` of type \" + (\"`\" + a + \"` supplied to `\" + c + \"`, expected a single ReactElement type.\")));\n      });\n    }(), instanceOf:function(a) {\n      return e(function(b, c, d, e, l) {\n        if (!(b[c] instanceof a)) {\n          var r = a.name || \"<<anonymous>>\";\n          b = b[c];\n          b = b.constructor && b.constructor.name ? b.constructor.name : \"<<anonymous>>\";\n          return new f(\"Invalid \" + e + \" `\" + l + \"` of type \" + (\"`\" + b + \"` supplied to `\" + d + \"`, expected \") + (\"instance of `\" + r + \"`.\"));\n        }\n        return null;\n      });\n    }, node:function() {\n      return e(function(a, b, c, d, e) {\n        return k(a[b]) ? null : new f(\"Invalid \" + d + \" `\" + e + \"` supplied to \" + (\"`\" + c + \"`, expected a ReactNode.\"));\n      });\n    }(), objectOf:function(a) {\n      return e(function(b, c, d, e, l) {\n        if (\"function\" !== typeof a) {\n          return new f(\"Property `\" + l + \"` of component `\" + d + \"` has invalid PropType notation inside objectOf.\");\n        }\n        b = b[c];\n        c = h(b);\n        if (\"object\" !== c) {\n          return new f(\"Invalid \" + e + \" `\" + l + \"` of type \" + (\"`\" + c + \"` supplied to `\" + d + \"`, expected an object.\"));\n        }\n        for (var g in b) {\n          if (D(b, g) && (c = a(b, g, d, e, l + \".\" + g, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\"), c instanceof Error)) {\n            return c;\n          }\n        }\n        return null;\n      });\n    }, oneOf:function(a) {\n      return Array.isArray(a) ? e(function(b, d, e, g, h) {\n        b = b[d];\n        for (d = 0; d < a.length; d++) {\n          if (c(b, a[d])) {\n            return null;\n          }\n        }\n        d = JSON.stringify(a, function(a, b) {\n          return \"symbol\" === l(b) ? String(b) : b;\n        });\n        return new f(\"Invalid \" + g + \" `\" + h + \"` of value `\" + String(b) + \"` \" + (\"supplied to `\" + e + \"`, expected one of \" + d + \".\"));\n      }) : (1 < arguments.length ? y(\"Invalid arguments supplied to oneOf, expected an array, got \" + arguments.length + \" arguments. A common mistake is to write oneOf(x, y, z) instead of oneOf([x, y, z]).\") : y(\"Invalid argument supplied to oneOf, expected an array.\"), A);\n    }, oneOfType:function(a) {\n      if (!Array.isArray(a)) {\n        return y(\"Invalid argument supplied to oneOfType, expected an instance of array.\"), A;\n      }\n      for (var b = 0; b < a.length; b++) {\n        var c = a[b];\n        if (\"function\" !== typeof c) {\n          return y(\"Invalid argument supplied to oneOfType. Expected an array of check functions, but received \" + m(c) + \" at index \" + b + \".\"), A;\n        }\n      }\n      return e(function(b, c, d, e, l) {\n        for (var g = [], h = 0; h < a.length; h++) {\n          var p = (0,a[h])(b, c, d, e, l, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\");\n          if (null == p) {\n            return null;\n          }\n          p.data && D(p.data, \"expectedType\") && g.push(p.data.expectedType);\n        }\n        b = 0 < g.length ? \", expected one of type [\" + g.join(\", \") + \"]\" : \"\";\n        return new f(\"Invalid \" + e + \" `\" + l + \"` supplied to \" + (\"`\" + d + \"`\" + b + \".\"));\n      });\n    }, shape:function(a) {\n      return e(function(b, c, d, e, g) {\n        b = b[c];\n        c = h(b);\n        if (\"object\" !== c) {\n          return new f(\"Invalid \" + e + \" `\" + g + \"` of type `\" + c + \"` \" + (\"supplied to `\" + d + \"`, expected `object`.\"));\n        }\n        for (var k in a) {\n          c = a[k];\n          if (\"function\" !== typeof c) {\n            return p(d, e, g, k, l(c));\n          }\n          if (c = c(b, k, d, e, g + \".\" + k, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n            return c;\n          }\n        }\n        return null;\n      });\n    }, exact:function(a) {\n      return e(function(b, c, d, e, g) {\n        var k = b[c], m = h(k);\n        if (\"object\" !== m) {\n          return new f(\"Invalid \" + e + \" `\" + g + \"` of type `\" + m + \"` \" + (\"supplied to `\" + d + \"`, expected `object`.\"));\n        }\n        m = Ua({}, b[c], a);\n        for (var n in m) {\n          m = a[n];\n          if (D(a, n) && \"function\" !== typeof m) {\n            return p(d, e, g, n, l(m));\n          }\n          if (!m) {\n            return new f(\"Invalid \" + e + \" `\" + g + \"` key `\" + n + \"` supplied to `\" + d + \"`.\\nBad object: \" + JSON.stringify(b[c], null, \"  \") + \"\\nValid keys: \" + JSON.stringify(Object.keys(a), null, \"  \"));\n          }\n          if (m = m(k, n, d, e, g + \".\" + n, \"SECRET_DO_NOT_PASS_THIS_OR_YOU_WILL_BE_FIRED\")) {\n            return m;\n          }\n        }\n        return null;\n      });\n    }};\n    f.prototype = Error.prototype;\n    q.checkPropTypes = G;\n    q.resetWarningCache = G.resetWarningCache;\n    return q.PropTypes = q;\n  }, da = F(function(a) {\n    a.exports = Va(ba.isElement, !0);\n  });\n  let Wa = \"B kB MB GB TB PB EB ZB YB\".split(\" \"), Xa = \"B kiB MiB GiB TiB PiB EiB ZiB YiB\".split(\" \"), Ya = \"b kbit Mbit Gbit Tbit Pbit Ebit Zbit Ybit\".split(\" \"), Za = \"b kibit Mibit Gibit Tibit Pibit Eibit Zibit Yibit\".split(\" \"), ea = (a, b, c) => {\n    let d = a;\n    if (\"string\" === typeof b || Array.isArray(b)) {\n      d = a.toLocaleString(b, c);\n    } else {\n      if (!0 === b || void 0 !== c) {\n        d = a.toLocaleString(void 0, c);\n      }\n    }\n    return d;\n  };\n  var Y = (a, b) => {\n    if (!Number.isFinite(a)) {\n      throw new TypeError(`Expected a finite number, got ${typeof a}: ${a}`);\n    }\n    b = Object.assign({bits:!1, binary:!1}, b);\n    let c = b.bits ? b.binary ? Za : Ya : b.binary ? Xa : Wa;\n    if (b.signed && 0 === a) {\n      return ` 0 ${c[0]}`;\n    }\n    var f = 0 > a;\n    let e = f ? \"-\" : b.signed ? \"+\" : \"\";\n    f && (a = -a);\n    let g;\n    void 0 !== b.minimumFractionDigits && (g = {minimumFractionDigits:b.minimumFractionDigits});\n    void 0 !== b.maximumFractionDigits && (g = Object.assign({maximumFractionDigits:b.maximumFractionDigits}, g));\n    if (1 > a) {\n      return a = ea(a, b.locale, g), e + a + \" \" + c[0];\n    }\n    f = Math.min(Math.floor(b.binary ? Math.log(a) / Math.log(1024) : Math.log10(a) / 3), c.length - 1);\n    a /= Math.pow(b.binary ? 1024 : 1000, f);\n    g || (a = a.toPrecision(3));\n    a = ea(Number(a), b.locale, g);\n    return e + a + \" \" + c[f];\n  }, L = function(a) {\n    var b = new Date(a.getTime());\n    a = b.getTimezoneOffset();\n    b.setSeconds(0, 0);\n    b = b.getTime() % 60000;\n    return 60000 * a + b;\n  }, $a = /[T ]/, ab = /:/, bb = /^(\\d{2})$/, cb = [/^([+-]\\d{2})$/, /^([+-]\\d{3})$/, /^([+-]\\d{4})$/], db = /^(\\d{4})/, eb = [/^([+-]\\d{4})/, /^([+-]\\d{5})/, /^([+-]\\d{6})/], na = /^-(\\d{2})$/, oa = /^-?(\\d{3})$/, pa = /^-?(\\d{2})-?(\\d{2})$/, qa = /^-?W(\\d{2})$/, ra = /^-?W(\\d{2})-?(\\d{1})$/, ta = /^(\\d{2}([.,]\\d*)?)$/, ua = /^(\\d{2}):?(\\d{2}([.,]\\d*)?)$/, va = /^(\\d{2}):?(\\d{2}):?(\\d{2}([.,]\\d*)?)$/, fb = /([Z+-].*)$/, xa = /^(Z)$/, ya = /^([+-])(\\d{2})$/, za = /^([+-])(\\d{2}):?(\\d{2})$/, q = function(a, \n  b) {\n    if (a instanceof Date) {\n      return new Date(a.getTime());\n    }\n    if (\"string\" !== typeof a) {\n      return new Date(a);\n    }\n    var c = (b || {}).additionalDigits;\n    c = null == c ? 2 : Number(c);\n    var f = a.split($a);\n    ab.test(f[0]) ? (b = null, f = f[0]) : (b = f[0], f = f[1]);\n    if (f) {\n      var e = fb.exec(f);\n      if (e) {\n        var g = f.replace(e[1], \"\");\n        var h = e[1];\n      } else {\n        g = f;\n      }\n    }\n    f = cb[c];\n    c = eb[c];\n    (c = db.exec(b) || c.exec(b)) ? (f = c[1], c = parseInt(f, 10), b = b.slice(f.length)) : (c = bb.exec(b) || f.exec(b)) ? (f = c[1], c = 100 * parseInt(f, 10), b = b.slice(f.length)) : (c = null, b = void 0);\n    return (b = ma(b, c)) ? (a = b.getTime(), b = 0, g && (b = sa(g)), h ? g = 60000 * wa(h) : (c = a + b, h = new Date(c), g = L(h), c = new Date(c), c.setDate(h.getDate() + 1), h = L(c) - L(h), 0 < h && (g += h)), new Date(a + b + g)) : new Date(a);\n  }, fa = function(a) {\n    a = q(a);\n    a.setHours(0, 0, 0, 0);\n    return a;\n  }, ha = function(a) {\n    var b = q(a), c = q(b);\n    a = new Date(0);\n    a.setFullYear(c.getFullYear(), 0, 1);\n    a.setHours(0, 0, 0, 0);\n    b = fa(b);\n    a = fa(a);\n    b = b.getTime() - 60000 * b.getTimezoneOffset();\n    a = a.getTime() - 60000 * a.getTimezoneOffset();\n    return Math.round((b - a) / 86400000) + 1;\n  }, E = function(a) {\n    var b = {weekStartsOn:1};\n    b = b ? Number(b.weekStartsOn) || 0 : 0;\n    a = q(a);\n    var c = a.getDay();\n    b = (c < b ? 7 : 0) + c - b;\n    a.setDate(a.getDate() - b);\n    a.setHours(0, 0, 0, 0);\n    return a;\n  }, M = function(a) {\n    a = q(a);\n    var b = a.getFullYear(), c = new Date(0);\n    c.setFullYear(b + 1, 0, 4);\n    c.setHours(0, 0, 0, 0);\n    c = E(c);\n    var f = new Date(0);\n    f.setFullYear(b, 0, 4);\n    f.setHours(0, 0, 0, 0);\n    f = E(f);\n    return a.getTime() >= c.getTime() ? b + 1 : a.getTime() >= f.getTime() ? b : b - 1;\n  }, ia = function(a) {\n    var b = q(a);\n    a = E(b).getTime();\n    b = M(b);\n    var c = new Date(0);\n    c.setFullYear(b, 0, 4);\n    c.setHours(0, 0, 0, 0);\n    b = E(c);\n    a -= b.getTime();\n    return Math.round(a / 604800000) + 1;\n  }, gb = \"M MM Q D DD DDD DDDD d E W WW YY YYYY GG GGGG H HH h hh m mm s ss S SS SSS Z ZZ X x\".split(\" \"), hb = function(a) {\n    var b = [], c;\n    for (c in a) {\n      a.hasOwnProperty(c) && b.push(c);\n    }\n    a = gb.concat(b).sort().reverse();\n    return new RegExp(\"(\\\\[[^\\\\[]*\\\\])|(\\\\\\\\)?(\" + a.join(\"|\") + \"|.)\", \"g\");\n  };\n  (function() {\n    var a = {lessThanXSeconds:{one:\"less than a second\", other:\"less than {{count}} seconds\"}, xSeconds:{one:\"1 second\", other:\"{{count}} seconds\"}, halfAMinute:\"half a minute\", lessThanXMinutes:{one:\"less than a minute\", other:\"less than {{count}} minutes\"}, xMinutes:{one:\"1 minute\", other:\"{{count}} minutes\"}, aboutXHours:{one:\"about 1 hour\", other:\"about {{count}} hours\"}, xHours:{one:\"1 hour\", other:\"{{count}} hours\"}, xDays:{one:\"1 day\", other:\"{{count}} days\"}, aboutXMonths:{one:\"about 1 month\", \n    other:\"about {{count}} months\"}, xMonths:{one:\"1 month\", other:\"{{count}} months\"}, aboutXYears:{one:\"about 1 year\", other:\"about {{count}} years\"}, xYears:{one:\"1 year\", other:\"{{count}} years\"}, overXYears:{one:\"over 1 year\", other:\"over {{count}} years\"}, almostXYears:{one:\"almost 1 year\", other:\"almost {{count}} years\"}};\n    return {localize:function(b, c, f) {\n      f = f || {};\n      b = \"string\" === typeof a[b] ? a[b] : 1 === c ? a[b].one : a[b].other.replace(\"{{count}}\", c);\n      return f.addSuffix ? 0 < f.comparison ? \"in \" + b : b + \" ago\" : b;\n    }};\n  })();\n  var ja = function() {\n    var a = \"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\".split(\" \"), b = \"January February March April May June July August September October November December\".split(\" \"), c = \"Su Mo Tu We Th Fr Sa\".split(\" \"), f = \"Sun Mon Tue Wed Thu Fri Sat\".split(\" \"), e = \"Sunday Monday Tuesday Wednesday Thursday Friday Saturday\".split(\" \"), g = [\"AM\", \"PM\"], h = [\"am\", \"pm\"], k = [\"a.m.\", \"p.m.\"], m = {MMM:function(b) {\n      return a[b.getMonth()];\n    }, MMMM:function(a) {\n      return b[a.getMonth()];\n    }, dd:function(a) {\n      return c[a.getDay()];\n    }, ddd:function(a) {\n      return f[a.getDay()];\n    }, dddd:function(a) {\n      return e[a.getDay()];\n    }, A:function(a) {\n      return 1 <= a.getHours() / 12 ? g[1] : g[0];\n    }, a:function(a) {\n      return 1 <= a.getHours() / 12 ? h[1] : h[0];\n    }, aa:function(a) {\n      return 1 <= a.getHours() / 12 ? k[1] : k[0];\n    }};\n    \"M D DDD d Q W\".split(\" \").forEach(function(a) {\n      m[a + \"o\"] = function(b, c) {\n        return Aa(c[a](b));\n      };\n    });\n    return {formatters:m, formattingTokensRegExp:hb(m)};\n  }(), J = {M:function(a) {\n    return a.getMonth() + 1;\n  }, MM:function(a) {\n    return m(a.getMonth() + 1, 2);\n  }, Q:function(a) {\n    return Math.ceil((a.getMonth() + 1) / 3);\n  }, D:function(a) {\n    return a.getDate();\n  }, DD:function(a) {\n    return m(a.getDate(), 2);\n  }, DDD:function(a) {\n    return ha(a);\n  }, DDDD:function(a) {\n    return m(ha(a), 3);\n  }, d:function(a) {\n    return a.getDay();\n  }, E:function(a) {\n    return a.getDay() || 7;\n  }, W:function(a) {\n    return ia(a);\n  }, WW:function(a) {\n    return m(ia(a), 2);\n  }, YY:function(a) {\n    return m(a.getFullYear(), 4).substr(2);\n  }, YYYY:function(a) {\n    return m(a.getFullYear(), 4);\n  }, GG:function(a) {\n    return String(M(a)).substr(2);\n  }, GGGG:function(a) {\n    return M(a);\n  }, H:function(a) {\n    return a.getHours();\n  }, HH:function(a) {\n    return m(a.getHours(), 2);\n  }, h:function(a) {\n    a = a.getHours();\n    return 0 === a ? 12 : 12 < a ? a % 12 : a;\n  }, hh:function(a) {\n    return m(J.h(a), 2);\n  }, m:function(a) {\n    return a.getMinutes();\n  }, mm:function(a) {\n    return m(a.getMinutes(), 2);\n  }, s:function(a) {\n    return a.getSeconds();\n  }, ss:function(a) {\n    return m(a.getSeconds(), 2);\n  }, S:function(a) {\n    return Math.floor(a.getMilliseconds() / 100);\n  }, SS:function(a) {\n    return m(Math.floor(a.getMilliseconds() / 10), 2);\n  }, SSS:function(a) {\n    return m(a.getMilliseconds(), 3);\n  }, Z:function(a) {\n    return O(a.getTimezoneOffset(), \":\");\n  }, ZZ:function(a) {\n    return O(a.getTimezoneOffset());\n  }, X:function(a) {\n    return Math.floor(a.getTime() / 1000);\n  }, x:function(a) {\n    return a.getTime();\n  }}, X = function(a, b, c) {\n    b = b ? String(b) : \"YYYY-MM-DDTHH:mm:ss.SSSZ\";\n    var d = (c || {}).locale;\n    c = ja.formatters;\n    var e = ja.formattingTokensRegExp;\n    d && d.format && d.format.formatters && (c = d.format.formatters, d.format.formattingTokensRegExp && (e = d.format.formattingTokensRegExp));\n    a = q(a);\n    if (a instanceof Date) {\n      d = !isNaN(a);\n    } else {\n      throw new TypeError(toString.call(a) + \" is not an instance of Date\");\n    }\n    return d ? Ba(b, c, e)(a) : \"Invalid Date\";\n  }, S = {color:void 0, size:void 0, className:void 0, style:void 0, attr:void 0}, R = n.createContext && n.createContext(S), v = function() {\n    v = Object.assign || function(a) {\n      for (var b, c = 1, f = arguments.length; c < f; c++) {\n        b = arguments[c];\n        for (var e in b) {\n          Object.prototype.hasOwnProperty.call(b, e) && (a[e] = b[e]);\n        }\n      }\n      return a;\n    };\n    return v.apply(this, arguments);\n  }, Ka = c.css(U(), '\\nfont-family: -apple-system,\\n  BlinkMacSystemFont,\\n  \"Segoe UI\",\\n  \"Roboto\",\\n  \"Oxygen\",\\n  \"Ubuntu\",\\n  \"Cantarell\",\\n  \"Fira Sans\",\\n  \"Droid Sans\",\\n  \"Helvetica Neue\",\\n  sans-serif;\\n', \"\\nfont-family: Menlo,\\n  Monaco,\\n  Lucida Console,\\n  Liberation Mono,\\n  DejaVu Sans Mono,\\n  Bitstream Vera Sans Mono,\\n  Courier New,\\n  monospace;\\n\"), h = {color:\"#0076ff\", textDecoration:\"none\", \":hover\":{textDecoration:\"underline\"}};\n  Z.propTypes = {location:da.object, children:da.node};\n  w.render(La.createElement(Z, null), document.getElementById(\"root\"));\n})(React, ReactDOM, emotionCore);\n\n"}]}];
 
 // Virtual module id; see rollup.config.js
-
 function getEntryPoint(name, format) {
   let entryPoints;
   entryManifest.forEach(manifest => {
@@ -1213,14 +1135,11 @@ function getEntryPoint(name, format) {
       entryPoints = manifest[name];
     }
   });
-
   if (entryPoints) {
     return entryPoints.find(e => e.format === format);
   }
-
   return null;
 }
-
 function getGlobalScripts(entryPoint, globalURLs) {
   return entryPoint.globalImports.map(id => {
     if (process.env.NODE_ENV !== 'production') {
@@ -1228,13 +1147,11 @@ function getGlobalScripts(entryPoint, globalURLs) {
         throw new Error('Missing global URL for id "%s"', id);
       }
     }
-
     return React.createElement('script', {
       src: globalURLs[id]
     });
   });
 }
-
 function getScripts(entryName, format, globalURLs) {
   const entryPoint = getEntryPoint(entryName, format);
   if (!entryPoint) return [];
@@ -1251,16 +1168,13 @@ const globalURLs = process.env.NODE_ENV === 'production' || process.env.NODE_ENV
   react: '/react@16.8.6/umd/react.development.js',
   'react-dom': '/react-dom@16.8.6/umd/react-dom.development.js'
 };
-
 function byVersion(a, b) {
   return semver.lt(a, b) ? -1 : semver.gt(a, b) ? 1 : 0;
 }
-
 async function getAvailableVersions(packageName, log) {
   const versionsAndTags = await getVersionsAndTags(packageName, log);
   return versionsAndTags ? versionsAndTags.versions.sort(byVersion) : [];
 }
-
 async function serveBrowsePage(req, res) {
   const availableVersions = await getAvailableVersions(req.packageName, req.log);
   const data = {
@@ -1285,7 +1199,6 @@ async function serveBrowsePage(req, res) {
     'Cache-Tag': 'browse'
   }).send(html);
 }
-
 var serveBrowsePage$1 = asyncHandler(serveBrowsePage);
 
 async function findMatchingEntries(stream, filename) {
@@ -1300,12 +1213,12 @@ async function findMatchingEntries(stream, filename) {
         // `firebase_npm/` prefix. So we just strip the first dir name.
         path: header.name.replace(/^[^/]+\/?/, '/'),
         type: header.type
-      }; // Dynamically create "directory" entries for all subdirectories
+      };
+
+      // Dynamically create "directory" entries for all subdirectories
       // in this entry's path. Some tarballs omit directory entries for
       // some reason, so this is the "brute force" method.
-
       let dir = path.dirname(entry.path);
-
       while (dir !== '/') {
         if (!entries[dir] && path.dirname(dir) === filename) {
           entries[dir] = {
@@ -1313,17 +1226,15 @@ async function findMatchingEntries(stream, filename) {
             type: 'directory'
           };
         }
-
         dir = path.dirname(dir);
-      } // Ignore non-files and files that aren't in this directory.
+      }
 
-
+      // Ignore non-files and files that aren't in this directory.
       if (entry.type !== 'file' || path.dirname(entry.path) !== filename) {
         stream.resume();
         stream.on('end', next);
         return;
       }
-
       try {
         const content = await bufferStream(stream);
         entry.contentType = getContentType(entry.path);
@@ -1339,16 +1250,13 @@ async function findMatchingEntries(stream, filename) {
     });
   });
 }
-
 async function serveDirectoryBrowser(req, res) {
   const stream = await getPackage(req.packageName, req.packageVersion, req.log);
   const filename = req.filename.slice(0, -1) || '/';
   const entries = await findMatchingEntries(stream, filename);
-
   if (Object.keys(entries).length === 0) {
     return res.status(404).send(`Not found: ${req.packageSpec}${req.filename}`);
   }
-
   req.browseTarget = {
     path: filename,
     type: 'directory',
@@ -1356,7 +1264,6 @@ async function serveDirectoryBrowser(req, res) {
   };
   serveBrowsePage$1(req, res);
 }
-
 var serveDirectoryBrowser$1 = asyncHandler(serveDirectoryBrowser);
 
 async function findMatchingEntries$1(stream, filename) {
@@ -1375,12 +1282,12 @@ async function findMatchingEntries$1(stream, filename) {
         // `firebase_npm/` prefix. So we just strip the first dir name.
         path: header.name.replace(/^[^/]+\/?/, '/'),
         type: header.type
-      }; // Dynamically create "directory" entries for all subdirectories
+      };
+
+      // Dynamically create "directory" entries for all subdirectories
       // in this entry's path. Some tarballs omit directory entries for
       // some reason, so this is the "brute force" method.
-
       let dir = path.dirname(entry.path);
-
       while (dir !== '/') {
         if (!entries[dir] && dir.startsWith(filename)) {
           entries[dir] = {
@@ -1388,17 +1295,15 @@ async function findMatchingEntries$1(stream, filename) {
             type: 'directory'
           };
         }
-
         dir = path.dirname(dir);
-      } // Ignore non-files and files that don't match the prefix.
+      }
 
-
+      // Ignore non-files and files that don't match the prefix.
       if (entry.type !== 'file' || !entry.path.startsWith(filename)) {
         stream.resume();
         stream.on('end', next);
         return;
       }
-
       try {
         const content = await bufferStream(stream);
         entry.contentType = getContentType(entry.path);
@@ -1415,17 +1320,14 @@ async function findMatchingEntries$1(stream, filename) {
     });
   });
 }
-
 function getMatchingEntries(entry, entries) {
   return Object.keys(entries).filter(key => entry.path !== key && path.dirname(key) === entry.path).map(key => entries[key]);
 }
-
 function getMetadata(entry, entries) {
   const metadata = {
     path: entry.path,
     type: entry.type
   };
-
   if (entry.type === 'file') {
     metadata.contentType = entry.contentType;
     metadata.integrity = entry.integrity;
@@ -1434,10 +1336,8 @@ function getMetadata(entry, entries) {
   } else if (entry.type === 'directory') {
     metadata.files = getMatchingEntries(entry, entries).map(e => getMetadata(e, entries));
   }
-
   return metadata;
 }
-
 async function serveDirectoryMetadata(req, res) {
   const stream = await getPackage(req.packageName, req.packageVersion, req.log);
   const filename = req.filename.slice(0, -1) || '/';
@@ -1445,7 +1345,6 @@ async function serveDirectoryMetadata(req, res) {
   const metadata = getMetadata(entries[filename], entries);
   res.send(metadata);
 }
-
 var serveDirectoryMetadata$1 = asyncHandler(serveDirectoryMetadata);
 
 function createDataURI(contentType, content) {
@@ -1454,9 +1353,9 @@ function createDataURI(contentType, content) {
 
 function escapeHTML(code) {
   return code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-} // These should probably be added to highlight.js auto-detection.
+}
 
-
+// These should probably be added to highlight.js auto-detection.
 const extLanguages = {
   map: 'json',
   mjs: 'javascript',
@@ -1465,43 +1364,33 @@ const extLanguages = {
   txt: 'text',
   vue: 'html'
 };
-
 function getLanguage(file) {
   // Try to guess the language based on the file extension.
   const ext = path.extname(file).substr(1);
-
   if (ext) {
     return extLanguages[ext] || ext;
   }
-
   const contentType = getContentType(file);
-
   if (contentType === 'text/plain') {
     return 'text';
   }
-
   return null;
 }
-
 function getLines(code) {
   return code.split('\n').map((line, index, array) => index === array.length - 1 ? line : line + '\n');
 }
+
 /**
  * Returns an array of HTML strings that highlight the given source code.
  */
-
-
 function getHighlights(code, file) {
   const language = getLanguage(file);
-
   if (!language) {
     return null;
   }
-
   if (language === 'text') {
     return getLines(code).map(escapeHTML);
   }
-
   try {
     let continuation = false;
     const hi = getLines(code).map(line => {
@@ -1535,15 +1424,16 @@ const contentTypeNames = {
   'text/x-scss': 'SCSS',
   'text/yaml': 'YAML'
 };
+
 /**
  * Gets a human-friendly name for whatever is in the given file.
  */
-
 function getLanguageName(file) {
   // Content-Type is text/plain, but we can be more descriptive.
   if (/\.flow$/.test(file)) return 'Flow';
-  if (/\.(d\.ts|tsx)$/.test(file)) return 'TypeScript'; // Content-Type is application/json, but we can be more descriptive.
+  if (/\.(d\.ts|tsx)$/.test(file)) return 'TypeScript';
 
+  // Content-Type is application/json, but we can be more descriptive.
   if (/\.map$/.test(file)) return 'Source Map (JSON)';
   const contentType = getContentType(file);
   return contentTypeNames[contentType] || contentType;
@@ -1561,14 +1451,14 @@ async function findEntry(stream, filename) {
         // `firebase_npm/` prefix. So we just strip the first dir name.
         path: header.name.replace(/^[^/]+\/?/, '/'),
         type: header.type
-      }; // Ignore non-files and files that don't match the name.
+      };
 
+      // Ignore non-files and files that don't match the name.
       if (entry.type !== 'file' || entry.path !== filename) {
         stream.resume();
         stream.on('end', next);
         return;
       }
-
       try {
         entry.content = await bufferStream(stream);
         foundEntry = entry;
@@ -1581,22 +1471,18 @@ async function findEntry(stream, filename) {
     });
   });
 }
-
 async function serveFileBrowser(req, res) {
   const stream = await getPackage(req.packageName, req.packageVersion, req.log);
   const entry = await findEntry(stream, req.filename);
-
   if (!entry) {
     return res.status(404).send(`Not found: ${req.packageSpec}${req.filename}`);
   }
-
   const details = {
     contentType: getContentType(entry.path),
     integrity: getIntegrity(entry.content),
     language: getLanguageName(entry.path),
     size: entry.content.length
   };
-
   if (/^image\//.test(details.contentType)) {
     details.uri = createDataURI(details.contentType, entry.content);
     details.highlights = null;
@@ -1604,7 +1490,6 @@ async function serveFileBrowser(req, res) {
     details.uri = null;
     details.highlights = getHighlights(entry.content.toString('utf8'), entry.path);
   }
-
   req.browseTarget = {
     path: req.filename,
     type: 'file',
@@ -1612,7 +1497,6 @@ async function serveFileBrowser(req, res) {
   };
   serveBrowsePage$1(req, res);
 }
-
 var serveFileBrowser$1 = asyncHandler(serveFileBrowser);
 
 async function findEntry$1(stream, filename) {
@@ -1627,14 +1511,14 @@ async function findEntry$1(stream, filename) {
         // `firebase_npm/` prefix. So we just strip the first dir name.
         path: header.name.replace(/^[^/]+\/?/, '/'),
         type: header.type
-      }; // Ignore non-files and files that don't match the name.
+      };
 
+      // Ignore non-files and files that don't match the name.
       if (entry.type !== 'file' || entry.path !== filename) {
         stream.resume();
         stream.on('end', next);
         return;
       }
-
       try {
         const content = await bufferStream(stream);
         entry.contentType = getContentType(entry.path);
@@ -1651,14 +1535,11 @@ async function findEntry$1(stream, filename) {
     });
   });
 }
-
 async function serveFileMetadata(req, res) {
   const stream = await getPackage(req.packageName, req.packageVersion, req.log);
   const entry = await findEntry$1(stream, req.filename);
-
   res.send(entry);
 }
-
 var serveFileMetadata$1 = asyncHandler(serveFileMetadata);
 
 function getContentTypeHeader(type) {
@@ -1668,11 +1549,9 @@ function getContentTypeHeader(type) {
 function serveFile(req, res) {
   const tags = ['file'];
   const ext = path.extname(req.entry.path).substr(1);
-
   if (ext) {
     tags.push(`${ext}-file`);
   }
-
   res.set({
     'Content-Type': getContentTypeHeader(req.entry.contentType),
     'Content-Length': req.entry.size,
@@ -2919,15 +2798,13 @@ var format_1 = format;
 
 function createIcon$1(Type, _ref) {
   var css = _ref.css,
-      rest = _objectWithoutPropertiesLoose(_ref, ["css"]);
-
+    rest = _objectWithoutPropertiesLoose(_ref, ["css"]);
   return core.jsx(Type, _extends({
     css: _extends({}, css, {
       verticalAlign: 'text-bottom'
     })
   }, rest));
 }
-
 function TwitterIcon$1(props) {
   return createIcon$1(FaTwitter, props);
 }
@@ -2941,11 +2818,9 @@ var AngularLogo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPoAAAD6CAMAAAC
 
 function _templateObject$1() {
   var data = _taggedTemplateLiteralLoose(["\n  html {\n    box-sizing: border-box;\n  }\n  *,\n  *:before,\n  *:after {\n    box-sizing: inherit;\n  }\n\n  html,\n  body,\n  #root {\n    height: 100%;\n    margin: 0;\n  }\n\n  body {\n    ", "\n    font-size: 16px;\n    line-height: 1.5;\n    background: white;\n    color: black;\n  }\n\n  code {\n    ", "\n  }\n\n  dd,\n  ul {\n    margin-left: 0;\n    padding-left: 25px;\n  }\n\n  #root {\n    display: flex;\n    flex-direction: column;\n  }\n"]);
-
   _templateObject$1 = function _templateObject() {
     return data;
   };
-
   return data;
 }
 var globalStyles$1 = core.css(_templateObject$1(), fontSans, fontMono);
@@ -2956,7 +2831,6 @@ var linkStyle$2 = {
     textDecoration: 'underline'
   }
 };
-
 function AboutLogo(_ref) {
   var children = _ref.children;
   return core.jsx("div", {
@@ -2966,7 +2840,6 @@ function AboutLogo(_ref) {
     }
   }, children);
 }
-
 function AboutLogoImage(props) {
   return core.jsx("img", _extends({}, props, {
     css: {
@@ -2974,7 +2847,6 @@ function AboutLogoImage(props) {
     }
   }));
 }
-
 function Stats(_ref2) {
   var data = _ref2.data;
   var totals = data.totals;
@@ -2982,16 +2854,17 @@ function Stats(_ref2) {
   var until = parse_1(totals.until);
   return core.jsx("p", null, "From ", core.jsx("strong", null, format_1(since, 'MMM D')), " to", ' ', core.jsx("strong", null, format_1(until, 'MMM D')), " unpkg served", ' ', core.jsx("strong", null, formatNumber(totals.requests.all)), " requests and a total of ", core.jsx("strong", null, formatBytes(totals.bandwidth.all)), " of data to", ' ', core.jsx("strong", null, formatNumber(totals.uniques.all)), " unique visitors,", ' ', core.jsx("strong", null, formatPercent(totals.requests.cached / totals.requests.all, 2), "%"), ' ', "of which were served from the cache.");
 }
-
 function App$1() {
   // const [stats, setStats] = useState(
   var _useState = React.useState(typeof window === 'object' && window.localStorage && window.localStorage.savedStats ? JSON.parse(window.localStorage.savedStats) : null),
-      stats = _useState[0];
+    stats = _useState[0];
+  var hasStats = !!(stats && !stats.error);
+  // const stringStats = JSON.stringify(stats);
 
-  var hasStats = !!(stats && !stats.error); // const stringStats = JSON.stringify(stats);
   // useEffect(() => {
   //   window.localStorage.savedStats = stringStats;
   // }, [stringStats]);
+
   // useEffect(() => {
   //   fetch('/api/stats?period=last-month')
   //     .then(res => res.json())
@@ -3196,7 +3069,6 @@ function App$1() {
     }
   }, core.jsx(GitHubIcon$1, null))))));
 }
-
 if (process.env.NODE_ENV !== 'production') {
   App$1.propTypes = {
     location: PropTypes.object,
@@ -3229,30 +3101,22 @@ function serveMainPage(req, res) {
 }
 
 const bareIdentifierFormat = /^((?:@[^/]+\/)?[^/]+)(\/.*)?$/;
-
 function isValidURL(value) {
   return URL.parseURL(value) != null;
 }
-
 function isProbablyURLWithoutProtocol(value) {
   return value.substr(0, 2) === '//';
 }
-
 function isAbsoluteURL(value) {
   return isValidURL(value) || isProbablyURLWithoutProtocol(value);
 }
-
 function isBareIdentifier(value) {
   return value.charAt(0) !== '.' && value.charAt(0) !== '/';
 }
-
-function rewriteValue(
-/* StringLiteral */
-node, origin, dependencies) {
+function rewriteValue(/* StringLiteral */node, origin, dependencies) {
   if (isAbsoluteURL(node.value)) {
     return;
   }
-
   if (isBareIdentifier(node.value)) {
     // "bare" identifier
     const match = bareIdentifierFormat.exec(node.value);
@@ -3266,27 +3130,22 @@ node, origin, dependencies) {
     node.value = `${node.value}?module`;
   }
 }
-
 function unpkgRewrite(origin, dependencies = {}) {
   return {
     manipulateOptions(opts, parserOpts) {
       parserOpts.plugins.push('dynamicImport', 'exportDefaultFrom', 'exportNamespaceFrom', 'importMeta');
     },
-
     visitor: {
       CallExpression(path) {
         if (path.node.callee.type !== 'Import') {
           // Some other function call, not import();
           return;
         }
-
         rewriteValue(path.node.arguments[0], origin, dependencies);
       },
-
       ExportAllDeclaration(path) {
         rewriteValue(path.node.source, origin, dependencies);
       },
-
       ExportNamedDeclaration(path) {
         if (!path.node.source) {
           // This export has no "source", so it's probably
@@ -3296,19 +3155,16 @@ function unpkgRewrite(origin, dependencies = {}) {
           // export function funcName() {}
           return;
         }
-
         rewriteValue(path.node.source, origin, dependencies);
       },
-
       ImportDeclaration(path) {
         rewriteValue(path.node.source, origin, dependencies);
       }
-
     }
   };
 }
 
-const origin = 'https://unpkg.com';
+const origin =  'https://unpkg.com';
 function rewriteBareModuleIdentifiers(code, packageConfig) {
   const dependencies = Object.assign({}, packageConfig.peerDependencies, packageConfig.dependencies);
   const options = {
@@ -3375,28 +3231,20 @@ function serveModule(req, res) {
   if (req.entry.contentType === 'application/javascript') {
     return serveJavaScriptModule(req, res);
   }
-
   if (req.entry.contentType === 'text/html') {
     return serveHTMLModule(req, res);
   }
-
   res.status(403).type('text').send('module mode is available only for JavaScript and HTML files');
 }
 
 const cloudflareURL = 'https://api.cloudflare.com/client/v4';
 const cloudflareEmail = undefined;
 const cloudflareKey = undefined;
-
 if (process.env.NODE_ENV !== 'production') {
-  // {
-  //   throw new Error('Missing the $CLOUDFLARE_EMAIL environment variable');
-  // }
-
-  // {
-  //   throw new Error('Missing the $CLOUDFLARE_KEY environment variable');
-  // }
+  {
+    throw new Error('Missing the $CLOUDFLARE_EMAIL environment variable');
+  }
 }
-
 function get$1(path, headers) {
   return fetch(`${cloudflareURL}${path}`, {
     headers: Object.assign({}, headers, {
@@ -3405,7 +3253,6 @@ function get$1(path, headers) {
     })
   });
 }
-
 function getJSON(path, headers) {
   return get$1(path, headers).then(res => {
     return res.json();
@@ -3415,19 +3262,15 @@ function getJSON(path, headers) {
       console.error(data);
       throw new Error('Failed to getJSON from Cloudflare');
     }
-
     return data.result;
   });
 }
-
 function getZones(domains) {
   return Promise.all((Array.isArray(domains) ? domains : [domains]).map(domain => getJSON(`/zones?name=${domain}`))).then(results => results.reduce((memo, zones) => memo.concat(zones)));
 }
-
 function reduceResults(target, values) {
   Object.keys(values).forEach(key => {
     const value = values[key];
-
     if (typeof value === 'object' && value) {
       target[key] = reduceResults(target[key] || {}, value);
     } else if (typeof value === 'number') {
@@ -3436,7 +3279,6 @@ function reduceResults(target, values) {
   });
   return target;
 }
-
 function getZoneAnalyticsDashboard(zones, since, until) {
   return Promise.all((Array.isArray(zones) ? zones : [zones]).map(zone => {
     return getJSON(`/zones/${zone.id}/analytics/dashboard?since=${since.toISOString()}&until=${until.toISOString()}`);
@@ -3467,7 +3309,6 @@ function extractPublicInfo(data) {
     }
   };
 }
-
 const DomainNames = ['unpkg.com', 'npmcdn.com'];
 async function getStats(since, until) {
   const zones = await getZones(DomainNames);
@@ -3480,19 +3321,16 @@ async function getStats(since, until) {
 
 function serveStats(req, res) {
   let since, until;
-
   if (req.query.period) {
     switch (req.query.period) {
       case 'last-day':
         until = dateFns.startOfDay(new Date());
         since = dateFns.subDays(until, 1);
         break;
-
       case 'last-week':
         until = dateFns.startOfDay(new Date());
         since = dateFns.subDays(until, 7);
         break;
-
       case 'last-month':
       default:
         until = dateFns.startOfDay(new Date());
@@ -3502,31 +3340,26 @@ function serveStats(req, res) {
     until = req.query.until ? new Date(req.query.until) : dateFns.startOfDay(new Date());
     since = req.query.since ? new Date(req.query.since) : dateFns.subDays(until, 1);
   }
-
   if (isNaN(since.getTime())) {
     return res.status(403).send({
       error: '?since is not a valid date'
     });
   }
-
   if (isNaN(until.getTime())) {
     return res.status(403).send({
       error: '?until is not a valid date'
     });
   }
-
   if (until <= since) {
     return res.status(403).send({
       error: '?until date must come after ?since date'
     });
   }
-
   if (until >= new Date()) {
     return res.status(403).send({
       error: '?until must be a date in the past'
     });
   }
-
   getStats(since, until).then(stats => {
     res.set({
       'Cache-Control': 'public, max-age=3600',
@@ -3550,15 +3383,12 @@ function createSearch(query) {
 /**
  * Reject URLs with invalid query parameters to increase cache hit rates.
  */
-
 function allowQuery(validKeys = []) {
   if (!Array.isArray(validKeys)) {
     validKeys = [validKeys];
   }
-
   return (req, res, next) => {
     const keys = Object.keys(req.query);
-
     if (!keys.every(key => validKeys.includes(key))) {
       const newQuery = keys.filter(key => validKeys.includes(key)).reduce((query, key) => {
         query[key] = req.query[key];
@@ -3566,7 +3396,6 @@ function allowQuery(validKeys = []) {
       }, {});
       return res.redirect(302, req.baseUrl + req.path + createSearch(newQuery));
     }
-
     next();
   };
 }
@@ -3588,7 +3417,6 @@ function fileRedirect(req, res, entry) {
     'Cache-Tag': 'redirect, file-redirect'
   }).redirect(302, createPackageURL(req.packageName, req.packageVersion, entry.path, req.query));
 }
-
 function indexRedirect(req, res, entry) {
   // Redirect to the index file so relative imports
   // resolve correctly.
@@ -3598,13 +3426,12 @@ function indexRedirect(req, res, entry) {
     'Cache-Tag': 'redirect, index-redirect'
   }).redirect(302, createPackageURL(req.packageName, req.packageVersion, entry.path, req.query));
 }
+
 /**
  * Search the given tarball for entries that match the given name.
  * Follows node's resolution algorithm.
  * https://nodejs.org/api/modules.html#modules_all_together
  */
-
-
 function searchEntries(stream, filename) {
   // filename = /some/file/name.js or /some/dir/name
   return new Promise((accept, reject) => {
@@ -3612,14 +3439,12 @@ function searchEntries(stream, filename) {
     const jsonEntryFilename = `${filename}.json`;
     const matchingEntries = {};
     let foundEntry;
-
     if (filename === '/') {
       foundEntry = matchingEntries['/'] = {
         name: '/',
         type: 'directory'
       };
     }
-
     stream.pipe(tar.extract()).on('error', reject).on('entry', async (header, stream, next) => {
       const entry = {
         // Most packages have header names that look like `package/index.js`
@@ -3628,20 +3453,20 @@ function searchEntries(stream, filename) {
         // `firebase_npm/` prefix. So we just strip the first dir name.
         path: header.name.replace(/^[^/]+/g, ''),
         type: header.type
-      }; // Skip non-files and files that don't match the entryName.
+      };
 
+      // Skip non-files and files that don't match the entryName.
       if (entry.type !== 'file' || !entry.path.startsWith(filename)) {
         stream.resume();
         stream.on('end', next);
         return;
       }
+      matchingEntries[entry.path] = entry;
 
-      matchingEntries[entry.path] = entry; // Dynamically create "directory" entries for all directories
+      // Dynamically create "directory" entries for all directories
       // that are in this file's path. Some tarballs omit these entries
       // for some reason, so this is the "brute force" method.
-
       let dir = path.dirname(entry.path);
-
       while (dir !== '/') {
         if (!matchingEntries[dir]) {
           matchingEntries[dir] = {
@@ -3649,11 +3474,10 @@ function searchEntries(stream, filename) {
             type: 'directory'
           };
         }
-
         dir = path.dirname(dir);
       }
-
-      if (entry.path === filename || // Allow accessing e.g. `/index.js` or `/index.json`
+      if (entry.path === filename ||
+      // Allow accessing e.g. `/index.js` or `/index.json`
       // using `/index` for compatibility with npm
       entry.path === jsEntryFilename || entry.path === jsonEntryFilename) {
         if (foundEntry) {
@@ -3667,19 +3491,18 @@ function searchEntries(stream, filename) {
           foundEntry = entry;
         }
       }
-
       try {
         const content = await bufferStream(stream);
         entry.contentType = getContentType(entry.path);
         entry.integrity = getIntegrity(content);
         entry.lastModified = header.mtime.toUTCString();
-        entry.size = content.length; // Set the content only for the foundEntry and
-        // discard the buffer for all others.
+        entry.size = content.length;
 
+        // Set the content only for the foundEntry and
+        // discard the buffer for all others.
         if (entry === foundEntry) {
           entry.content = content;
         }
-
         next();
       } catch (error) {
         next(error);
@@ -3694,19 +3517,17 @@ function searchEntries(stream, filename) {
     });
   });
 }
+
 /**
  * Fetch and search the archive to try and find the requested file.
  * Redirect to the "index" file if a directory was requested.
  */
-
-
 async function findEntry$2(req, res, next) {
   const stream = await getPackage(req.packageName, req.packageVersion, req.log);
   const {
     foundEntry: entry,
     matchingEntries: entries
   } = await searchEntries(stream, req.filename);
-
   if (!entry) {
     return res.status(404).set({
       'Cache-Control': 'public, max-age=31536000',
@@ -3714,32 +3535,26 @@ async function findEntry$2(req, res, next) {
       'Cache-Tag': 'missing, missing-entry'
     }).type('text').send(`Cannot find "${req.filename}" in ${req.packageSpec}`);
   }
-
   if (entry.type === 'file' && entry.path !== req.filename) {
     return fileRedirect(req, res, entry);
   }
-
   if (entry.type === 'directory') {
     // We need to redirect to some "index" file inside the directory so
     // our URLs work in a similar way to require("lib") in node where it
     // uses `lib/index.js` when `lib` is a directory.
     const indexEntry = entries[`${req.filename}/index.js`] || entries[`${req.filename}/index.json`];
-
     if (indexEntry && indexEntry.type === 'file') {
       return indexRedirect(req, res, indexEntry);
     }
-
     return res.status(404).set({
       'Cache-Control': 'public, max-age=31536000',
       // 1 year
       'Cache-Tag': 'missing, missing-index'
     }).type('text').send(`Cannot find an index in "${req.filename}" in ${req.packageSpec}`);
   }
-
   req.entry = entry;
   next();
 }
-
 var findEntry$3 = asyncHandler(findEntry$2);
 
 /**
@@ -3748,11 +3563,9 @@ var findEntry$3 = asyncHandler(findEntry$2);
 function noQuery() {
   return (req, res, next) => {
     const keys = Object.keys(req.query);
-
     if (keys.length) {
       return res.redirect(302, req.baseUrl + req.path);
     }
-
     next();
   };
 }
@@ -3760,32 +3573,28 @@ function noQuery() {
 /**
  * Redirect old URLs that we no longer support.
  */
-
 function redirectLegacyURLs(req, res, next) {
   // Permanently redirect /_meta/path to /path?meta
   if (req.path.match(/^\/_meta\//)) {
     req.query.meta = '';
     return res.redirect(301, req.path.substr(6) + createSearch(req.query));
-  } // Permanently redirect /path?json => /path?meta
+  }
 
-
+  // Permanently redirect /path?json => /path?meta
   if (req.query.json != null) {
     delete req.query.json;
     req.query.meta = '';
     return res.redirect(301, req.path + createSearch(req.query));
   }
-
   next();
 }
 
+// https://cloud.google.com/appengine/docs/standard/nodejs/runtime#environment_variables
 const projectId = process.env.GOOGLE_CLOUD_PROJECT;
 const enableDebugging = process.env.DEBUG != null;
-
 function noop() {}
-
 function createLog(req) {
   const traceContext = req.headers['x-cloud-trace-context'];
-
   if (projectId && traceContext) {
     const [traceId, spanId] = traceContext.split('/');
     const trace = `projects/${projectId}/traces/${traceId}`;
@@ -3816,7 +3625,6 @@ function createLog(req) {
       }
     };
   }
-
   return {
     debug: enableDebugging ? (format, ...args) => {
       console.log(util.format(format, ...args));
@@ -3829,7 +3637,6 @@ function createLog(req) {
     }
   };
 }
-
 function requestLog(req, res, next) {
   req.log = createLog(req);
   next();
@@ -3837,11 +3644,9 @@ function requestLog(req, res, next) {
 
 function filenameRedirect(req, res) {
   let filename;
-
   if (req.query.module != null) {
     // See https://github.com/rollup/rollup/wiki/pkg.module
     filename = req.packageConfig.module || req.packageConfig['jsnext:main'];
-
     if (!filename) {
       // https://nodejs.org/api/esm.html#esm_code_package_json_code_code_type_code_field
       if (req.packageConfig.type === 'module') {
@@ -3852,7 +3657,6 @@ function filenameRedirect(req, res) {
         filename = req.packageConfig.main;
       }
     }
-
     if (!filename) {
       return res.status(404).type('text').send(`Package ${req.packageSpec} does not contain an ES module`);
     }
@@ -3866,26 +3670,24 @@ function filenameRedirect(req, res) {
     filename = req.packageConfig.browser;
   } else {
     filename = req.packageConfig.main || '/index.js';
-  } // Redirect to the exact filename so relative imports
+  }
+
+  // Redirect to the exact filename so relative imports
   // and URLs resolve correctly.
-
-
   res.set({
     'Cache-Control': 'public, max-age=31536000',
     // 1 year
     'Cache-Tag': 'redirect, filename-redirect'
   }).redirect(302, createPackageURL(req.packageName, req.packageVersion, filename.replace(/^\/*/, '/'), req.query));
 }
+
 /**
  * Redirect to the exact filename if the request omits one.
  */
-
-
 async function validateFilename(req, res, next) {
   if (!req.filename) {
     return filenameRedirect(req, res);
   }
-
   next();
 }
 
@@ -3896,9 +3698,9 @@ function parsePackagePathname(pathname) {
   } catch (error) {
     return null;
   }
+  const match = packagePathnameFormat.exec(pathname);
 
-  const match = packagePathnameFormat.exec(pathname); // Disallow invalid pathnames.
-
+  // Disallow invalid pathnames.
   if (match == null) return null;
   const packageName = match[1];
   const packageVersion = match[2] || 'latest';
@@ -3912,23 +3714,19 @@ function parsePackagePathname(pathname) {
     packageSpec: `${packageName}@${packageVersion}`,
     // @scope/name@version
     filename // /file.js
-
   };
 }
 
 /**
  * Parse the pathname in the URL. Reject invalid URLs.
  */
-
 function validatePackagePathname(req, res, next) {
   const parsed = parsePackagePathname(req.path);
-
   if (parsed == null) {
     return res.status(403).send({
       error: `Invalid URL: ${req.path}`
     });
   }
-
   req.packageName = parsed.packageName;
   req.packageVersion = parsed.packageVersion;
   req.packageSpec = parsed.packageSpec;
@@ -3937,27 +3735,22 @@ function validatePackagePathname(req, res, next) {
 }
 
 const hexValue = /^[a-f0-9]+$/i;
-
 function isHash(value) {
   return value.length === 32 && hexValue.test(value);
 }
+
 /**
  * Reject requests for invalid npm package names.
  */
-
-
 function validatePackageName(req, res, next) {
   if (isHash(req.packageName)) {
     return res.status(403).type('text').send(`Invalid package name "${req.packageName}" (cannot be a hash)`);
   }
-
   const errors = validateNpmPackageName(req.packageName).errors;
-
   if (errors) {
     const reason = errors.join(', ');
     return res.status(403).type('text').send(`Invalid package name "${req.packageName}" (${reason})`);
   }
-
   next();
 }
 
@@ -3968,52 +3761,40 @@ function semverRedirect(req, res, newVersion) {
     'Cache-Tag': 'redirect, semver-redirect'
   }).redirect(302, req.baseUrl + createPackageURL(req.packageName, newVersion, req.filename, req.query));
 }
-
 async function resolveVersion(packageName, range, log) {
   const versionsAndTags = await getVersionsAndTags(packageName, log);
-
   if (versionsAndTags) {
     const {
       versions,
       tags
     } = versionsAndTags;
-
     if (range in tags) {
       range = tags[range];
     }
-
     return versions.includes(range) ? range : semver.maxSatisfying(versions, range);
   }
-
   return null;
 }
+
 /**
  * Check the package version/tag in the URL and make sure it's good. Also
  * fetch the package config and add it to req.packageConfig. Redirect to
  * the resolved version number if necessary.
  */
-
-
 async function validateVersion(req, res, next) {
   const version = await resolveVersion(req.packageName, req.packageVersion, req.log);
-
   if (!version) {
     return res.status(404).type('text').send(`Cannot find package ${req.packageSpec}`);
   }
-
   if (version !== req.packageVersion) {
     return semverRedirect(req, res, version);
   }
-
   req.packageConfig = await getPackageConfig(req.packageName, req.packageVersion, req.log);
-
   if (!req.packageConfig) {
     return res.status(500).type('text').send(`Cannot get config for package ${req.packageSpec}`);
   }
-
   next();
 }
-
 var validatePackageVersion = asyncHandler(validateVersion);
 
 function createApp(callback) {
@@ -4021,23 +3802,21 @@ function createApp(callback) {
   callback(app);
   return app;
 }
-
 function createServer() {
   return createApp(app => {
     app.disable('x-powered-by');
     app.enable('trust proxy');
     app.enable('strict routing');
-
     if (process.env.NODE_ENV === 'development') {
       app.use(morgan('dev'));
     }
-
     app.use(cors());
     app.use(express.static('public', {
       maxAge: '1y'
-    })); // Special startup request from App Engine
-    // https://cloud.google.com/appengine/docs/standard/nodejs/how-instances-are-managed
+    }));
 
+    // Special startup request from App Engine
+    // https://cloud.google.com/appengine/docs/standard/nodejs/how-instances-are-managed
     app.get('/_ah/start', (req, res) => {
       res.status(200).end();
     });
@@ -4049,9 +3828,10 @@ function createServer() {
       app.enable('strict routing');
       app.get('*/', noQuery(), validatePackagePathname, validatePackageName, validatePackageVersion, serveDirectoryBrowser$1);
       app.get('*', noQuery(), validatePackagePathname, validatePackageName, validatePackageVersion, serveFileBrowser$1);
-    })); // We need to route in this weird way because Express
-    // doesn't have a way to route based on query params.
+    }));
 
+    // We need to route in this weird way because Express
+    // doesn't have a way to route based on query params.
     const metadataApp = createApp(app => {
       app.enable('strict routing');
       app.get('*/', allowQuery('meta'), validatePackagePathname, validatePackageName, validatePackageVersion, validateFilename, serveDirectoryMetadata$1);
@@ -4063,9 +3843,10 @@ function createServer() {
       } else {
         next();
       }
-    }); // We need to route in this weird way because Express
-    // doesn't have a way to route based on query params.
+    });
 
+    // We need to route in this weird way because Express
+    // doesn't have a way to route based on query params.
     const moduleApp = createApp(app => {
       app.enable('strict routing');
       app.get('*', allowQuery('module'), validatePackagePathname, validatePackageName, validatePackageVersion, validateFilename, findEntry$3, serveModule);
@@ -4076,8 +3857,9 @@ function createServer() {
       } else {
         next();
       }
-    }); // Send old */ requests to the new /browse UI.
+    });
 
+    // Send old */ requests to the new /browse UI.
     app.get('*/', (req, res) => {
       res.redirect(302, '/browse' + req.url);
     });
